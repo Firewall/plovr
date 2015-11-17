@@ -123,7 +123,7 @@ plovr.writeErrors_ = function(errors, html, style) {
     if (anchor) {
       htmlMessage = anchor + htmlMessage;
     }
-    html.push('<div style="', style, '">', htmlMessage, '</div>');
+    html.push('<div style="', style, '"><a style="float: right;margin-top: -2px;" onclick="$(this).parent(\'div\').remove();">x</a>', htmlMessage, '</div>');
   }
 };
 
