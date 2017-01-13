@@ -51,8 +51,9 @@ AudioContext.prototype.createBuffer =
 
 /**
  * @param {ArrayBuffer} audioData
- * @param {function(AudioBuffer)} successCallback
+ * @param {function(AudioBuffer)=} successCallback
  * @param {function(?)=} errorCallback
+ * @return {!Promise<AudioBuffer>}
  */
 AudioContext.prototype.decodeAudioData =
     function(audioData, successCallback, errorCallback) {};
@@ -210,7 +211,7 @@ OfflineAudioCompletionEvent.prototype.renderedBuffer;
 function AudioNode() {}
 
 /**
- * @param {AudioNode} destination
+ * @param {AudioNode|AudioParam} destination
  * @param {number=} output
  * @param {number=} input
  */
@@ -716,37 +717,46 @@ ConvolverNode.prototype.normalize;
  * @constructor
  * @extends {AudioNode}
  */
-function RealtimeAnalyserNode() {}
+var AnalyserNode = function() {};
 
 /**
  * @param {Float32Array} array
  */
-RealtimeAnalyserNode.prototype.getFloatFrequencyData = function(array) {};
+AnalyserNode.prototype.getFloatFrequencyData = function(array) {};
 
 /**
  * @param {Uint8Array} array
  */
-RealtimeAnalyserNode.prototype.getByteFrequencyData = function(array) {};
+AnalyserNode.prototype.getByteFrequencyData = function(array) {};
 
 /**
  * @param {Uint8Array} array
  */
-RealtimeAnalyserNode.prototype.getByteTimeDomainData = function(array) {};
+AnalyserNode.prototype.getByteTimeDomainData = function(array) {};
 
 /** @type {number} */
-RealtimeAnalyserNode.prototype.fftSize;
+AnalyserNode.prototype.fftSize;
 
 /** @type {number} */
-RealtimeAnalyserNode.prototype.frequencyBinCount;
+AnalyserNode.prototype.frequencyBinCount;
 
 /** @type {number} */
-RealtimeAnalyserNode.prototype.minDecibels;
+AnalyserNode.prototype.minDecibels;
 
 /** @type {number} */
-RealtimeAnalyserNode.prototype.maxDecibels;
+AnalyserNode.prototype.maxDecibels;
 
 /** @type {number} */
-RealtimeAnalyserNode.prototype.smoothingTimeConstant;
+AnalyserNode.prototype.smoothingTimeConstant;
+
+/**
+ * @constructor
+ * @extends {AnalyserNode}
+ * @deprecated Use AnalyserNode
+ *
+ * This constructor has been added for backwards compatibility.
+ */
+var RealtimeAnalyserNode = function() {};
 
 /**
  * @constructor

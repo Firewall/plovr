@@ -52,6 +52,7 @@ public final class SyntacticScopeCreatorTest extends TestCase {
   }
 
   public void testFunctionScope() {
+    compiler.getOptions().setLanguageIn(CompilerOptions.LanguageMode.ECMASCRIPT6);
     Scope scope = getScope("function foo() {}\n" +
         "var x = function bar(a1) {};" +
         "[function bar2() { var y; }];" +
@@ -94,5 +95,15 @@ public final class SyntacticScopeCreatorTest extends TestCase {
     Scope fooScope = scopeCreator.createScope(fooNode, globalScope);
     assertEquals(fooNode, fooScope.getRootNode());
     assertTrue(fooScope.isDeclared("x", false));
+  }
+
+  public void testFunctionExpressionInForLoopInitializer() {
+    Node root = getRoot("for (function foo() {};;) {}");
+    Scope globalScope = scopeCreator.createScope(root, null);
+    assertFalse(globalScope.isDeclared("foo", false));
+
+    Node fNode = root.getFirstChild().getFirstChild();
+    Scope fScope = scopeCreator.createScope(fNode, globalScope);
+    assertTrue(fScope.isDeclared("foo", false));
   }
 }

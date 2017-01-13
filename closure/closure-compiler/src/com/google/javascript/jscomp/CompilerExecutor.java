@@ -111,7 +111,7 @@ final class CompilerExecutor {
           result = future.get();
         }
       } catch (InterruptedException | TimeoutException | ExecutionException e) {
-        throw Throwables.propagate(e);
+        throw new RuntimeException(e);
       }
     } else {
       try {
@@ -129,5 +129,5 @@ final class CompilerExecutor {
     }
 
     return result;
-  } 
+  }
 }

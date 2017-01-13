@@ -22,7 +22,6 @@ import com.google.javascript.jscomp.AbstractCompiler.LifeCycleStage;
 import com.google.javascript.jscomp.DefinitionsRemover.Definition;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -97,6 +96,14 @@ class OptimizeParameters
     if (rValue == null ||
         !rValue.isFunction() ||
         NodeUtil.isVarArgsFunction(rValue)) {
+      return false;
+    }
+
+    // We don't want to re-write $jscomp.inherits to not stop recognizing
+    // 'inherits' calls. (b/27244988)
+    Node lValue = definition.getLValue();
+    if (lValue.matchesQualifiedName("$jscomp.inherits")
+        || lValue.matchesQualifiedName("$jscomp$inherits")) {
       return false;
     }
 
@@ -347,14 +354,14 @@ class OptimizeParameters
     // are "this", "arguments", local names, and functions that capture local
     // values.
     switch (n.getType()) {
-      case Token.THIS:
+      case THIS:
         return false;
-      case Token.FUNCTION:
+      case FUNCTION:
         // Don't move function closures.
         // TODO(johnlenz): Closure that only contain global reference can be
         // moved.
         return false;
-      case Token.NAME:
+      case NAME:
         if (n.getString().equals("arguments")) {
           return false;
         } else {
@@ -488,7 +495,7 @@ class OptimizeParameters
    * @return true if a parameter has been removed.
    */
   private boolean eliminateParamsAfter(Node function, int argIndex) {
-    Node formalArgPtr = function.getFirstChild().getNext().getFirstChild();
+    Node formalArgPtr = function.getSecondChild().getFirstChild();
     while (argIndex != 0 && formalArgPtr != null) {
       formalArgPtr = formalArgPtr.getNext();
       argIndex--;
@@ -524,7 +531,7 @@ class OptimizeParameters
         function, argIndex);
 
     if (formalArgPtr != null) {
-      function.getFirstChild().getNext().removeChild(formalArgPtr);
+      function.getSecondChild().removeChild(formalArgPtr);
     }
     return formalArgPtr;
   }

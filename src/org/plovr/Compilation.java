@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.logging.Logger;
 
 import javax.annotation.Nullable;
 
@@ -46,6 +47,8 @@ import com.google.template.soy.base.SoySyntaxException;
  * @author bolinfest@gmail.com (Michael Bolin)
  */
 public final class Compilation {
+
+  private static final Logger logger = Logger.getLogger("org.plovr.Compilation");
 
   private final List<SourceFile> externs;
   private final List<SourceFile> inputs;
@@ -109,7 +112,11 @@ public final class Compilation {
     }
 
     try {
-      Compilation compilation = config.getManifest().getCompilerArguments(config.getModuleConfig());
+      PlovrClosureCompiler dummyCompiler = new PlovrClosureCompiler(config.getErrorStream());
+      Compilation compilation = config.getManifest().getCompilerArguments(
+          config.getModuleConfig(), config.getCompilerOptions(dummyCompiler));
+      logger.info("Compiling " + allDependencies.size()
+                  + " dependencies using mode: " + config.getCompilationMode());
       compilation.compile(config);
       return compilation;
     } catch (Throwable e) {
@@ -343,6 +350,11 @@ public final class Compilation {
     Map<String, File> moduleToOutputPath = moduleConfig.getModuleToOutputPath();
     final Map<String, String> moduleNameToFingerprint = Maps.newHashMap();
     final boolean isDebugMode = false;
+
+    if (sourceMapPath != null) {
+        new File(sourceMapPath).mkdirs();
+    }
+
     for (JSModule module : modules) {
       String moduleName = module.getName();
       File outputFile = moduleToOutputPath.get(moduleName);

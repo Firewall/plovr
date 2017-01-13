@@ -19,7 +19,6 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 
 /**
  * Prepare the AST before we do any checks or optimizations on it.
@@ -119,7 +118,7 @@ class PrepareAst implements CompilerPass {
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
       switch (n.getType()) {
-        case Token.CALL:
+        case CALL:
           annotateCalls(n);
           break;
       }
@@ -130,7 +129,7 @@ class PrepareAst implements CompilerPass {
      * "this" values (what we are call "free" calls) and direct call to eval.
      */
     private static void annotateCalls(Node n) {
-      Preconditions.checkState(n.isCall());
+      Preconditions.checkState(n.isCall(), n);
 
       // Keep track of of the "this" context of a call.  A call without an
       // explicit "this" is a free call.

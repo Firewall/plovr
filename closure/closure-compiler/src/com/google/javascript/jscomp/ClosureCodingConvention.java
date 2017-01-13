@@ -295,7 +295,7 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
     // Identify forward declaration of form goog.forwardDeclare('foo.bar')
     if (callName.matchesQualifiedName("goog.forwardDeclare") &&
         n.getChildCount() == 2) {
-      Node typeDeclaration = n.getChildAtIndex(1);
+      Node typeDeclaration = n.getSecondChild();
       if (typeDeclaration.isString()) {
         return ImmutableList.of(typeDeclaration.getString());
       }
@@ -345,7 +345,7 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
   private final Set<String> propertyTestFunctions = ImmutableSet.of(
       "goog.isDef", "goog.isNull", "goog.isDefAndNotNull",
       "goog.isString", "goog.isNumber", "goog.isBoolean",
-      "goog.isFunction", "goog.isArray", "goog.isObject");
+      "goog.isFunction", "goog.isArray", "goog.isArrayLike", "goog.isObject");
 
   @Override
   public boolean isPropertyTestFunction(Node call) {
@@ -356,19 +356,14 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
   }
 
   @Override
+  public boolean isPropertyRenameFunction(String name) {
+    return super.isPropertyRenameFunction(name) || "goog.reflect.objectProperty".equals(name);
+  }
+
+  @Override
   public boolean isFunctionCallThatAlwaysThrows(Node n) {
-    if (n.isExprResult()) {
-      if (!n.getFirstChild().isCall()) {
-        return false;
-      }
-    } else if (!n.isCall()) {
-      return false;
-    }
-    if (n.isExprResult()) {
-      n = n.getFirstChild();
-    }
-    // n is a call
-    return n.getFirstChild().matchesQualifiedName("goog.asserts.fail");
+    return CodingConventions.defaultIsFunctionCallThatAlwaysThrows(
+        n, "goog.asserts.fail");
   }
 
   @Override
@@ -457,6 +452,30 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
   }
 
   @Override
+  public Cache describeCachingCall(Node node) {
+    if (!node.isCall()) {
+      return null;
+    }
+
+    Node callTarget = node.getFirstChild();
+    if (callTarget.isQualifiedName()
+        && (callTarget.matchesQualifiedName("goog.reflect.cache")
+            || callTarget.matchesQualifiedName("goog$reflect$cache"))) {
+      int paramCount = node.getChildCount() - 1;
+      if (3 <= paramCount && paramCount <= 4) {
+        Node cacheObj = callTarget.getNext();
+        Node keyNode = cacheObj.getNext();
+        Node valueFn = keyNode.getNext();
+        Node keyFn = valueFn.getNext();
+
+        return new Cache(cacheObj, keyNode, valueFn, keyFn);
+      }
+    }
+
+    return super.describeCachingCall(node);
+  }
+
+  @Override
   public Collection<String> getIndirectlyDeclaredProperties() {
     return indirectlyDeclaredProperties;
   }
@@ -485,7 +504,7 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
     public com.google.javascript.rhino.jstype.JSType
         getAssertedOldType(Node call, JSTypeRegistry registry) {
       if (call.getChildCount() > 2) {
-        Node constructor = call.getFirstChild().getNext().getNext();
+        Node constructor = call.getSecondChild().getNext();
         if (constructor != null) {
           com.google.javascript.rhino.jstype.JSType ownerType =
               constructor.getJSType();
@@ -503,7 +522,7 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
     @Override
     public JSType getAssertedNewType(Node call, DeclaredTypeRegistry scope) {
       if (call.getChildCount() > 2) {
-        Node constructor = call.getFirstChild().getNext().getNext();
+        Node constructor = call.getSecondChild().getNext();
         if (constructor != null && constructor.isQualifiedName()) {
           QualifiedName qname = QualifiedName.fromNode(constructor);
           JSType functionType = scope.getDeclaredTypeOf(qname.getLeftmostName());
@@ -513,7 +532,7 @@ public final class ClosureCodingConvention extends CodingConventions.Proxy {
             }
             com.google.javascript.jscomp.newtypes.FunctionType ctorType =
                 functionType.getFunTypeIfSingletonObj();
-            if (ctorType != null && ctorType.isConstructor()) {
+            if (ctorType != null && ctorType.isUniqueConstructor()) {
               return ctorType.getInstanceTypeOfCtor();
             }
           }

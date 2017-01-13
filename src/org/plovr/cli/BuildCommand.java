@@ -23,6 +23,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.css.JobDescription;
 import com.google.common.css.compiler.ast.GssError;
 import com.google.common.css.compiler.ast.GssParserException;
+import com.google.common.io.Closeables;
 import com.google.common.io.Files;
 import com.google.javascript.jscomp.JSError;
 import com.google.javascript.jscomp.Result;
@@ -40,9 +41,7 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
    */
   @Override
   int runCommandWithOptions(BuildCommandOptions options) throws IOException {
-    // Even though logging would get printed to stderr and not stdout, it is
-    // still distracting and feels wrong. May revisit this at some point.
-    Logger.getLogger("org.plovr").setLevel(Level.OFF);
+    Logger.getLogger("org.plovr").setLevel(Level.WARNING);
 
     List<String> arguments = options.getArguments();
     if (arguments.size() < 1) {
@@ -51,7 +50,11 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
     }
 
     for (String configFile: arguments) {
-      Config config = ConfigParser.parseFile(new File(configFile));
+      Config.Builder builder = ConfigParser.createBuilderFromFile(new File(configFile));
+      if (options.getLanguage() != null) {
+        builder.setLanguage(options.getLanguage());
+      }
+      Config config = builder.build();
       Compilation compilation;
       try {
         compilation = Compilation.createAndCompile(config);
@@ -108,10 +111,12 @@ public class BuildCommand extends AbstractCommandRunner<BuildCommandOptions> {
         // it should only be written out to a file after the compiled code has
         // been generated.
         if (sourceMapPath != null) {
+          new File(sourceMapPath).mkdirs();
           String sourceMapName = config.getSourceMapOutputName();
           Writer writer = Streams.createFileWriter(
               new File(sourceMapPath, sourceMapName), config);
           result.sourceMap.appendTo(writer, sourceMapName);
+          Closeables.close(writer, false);
         }
       } else {
         Function<String, String> moduleNameToUri = moduleConfig.

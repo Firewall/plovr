@@ -21,11 +21,14 @@ package com.google.javascript.jscomp;
  */
 public final class RemoveUnusedClassPropertiesTest extends CompilerTestCase {
 
-  private static final String EXTERNS =
-      "var window;\n" +
-      "function alert(a) {}\n" +
-      "var EXT = {};" +
-      "EXT.ext;";
+  private static final String EXTERNS = LINE_JOINER.join(
+      "var window;",
+      "function alert(a) {}",
+      "var EXT = {};",
+      "EXT.ext;",
+      "var Object;",
+      "Object.defineProperties;",
+      "var foo");
 
   public RemoveUnusedClassPropertiesTest() {
     super(EXTERNS);
@@ -223,4 +226,111 @@ public final class RemoveUnusedClassPropertiesTest extends CompilerTestCase {
         + "function use(a) { alert(a.prop) }; "
         + "use(C)");
   }
+
+  public void testObjectDefineProperties1() {
+    enableTypeCheck();
+
+    testSame(
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {prop:{value:1}});",
+            "function use(a) { alert(a.prop) };",
+            "use(C)"));
+  }
+
+  public void testObjectDefineProperties2() {
+    enableTypeCheck();
+
+    test(
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {prop:{value:1}});"),
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {});"));
+  }
+
+  public void testObjectDefineProperties3() {
+    enableTypeCheck();
+
+    test(
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, ",
+            "  {prop:{",
+            "    get:function(){},",
+            "    set:function(a){},",
+            "}});"),
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {});"));
+  }
+
+  // side-effect in definition retains property
+  public void testObjectDefineProperties4() {
+    enableTypeCheck();
+
+    testSame(
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {prop:alert('')});"));
+  }
+
+  // quoted properties retains property
+  public void testObjectDefineProperties5() {
+    enableTypeCheck();
+
+    testSame(
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {'prop': {value: 1}});"));
+  }
+
+  public void testObjectDefineProperties6() {
+    enableTypeCheck();
+
+    // an unknown destination object doesn't prevent removal.
+    test(
+        "Object.defineProperties(foo(), {prop:{value:1}});",
+        "Object.defineProperties(foo(), {});");
+  }
+
+  public void testObjectDefineProperties7() {
+    enableTypeCheck();
+
+    test(
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {prop:{get:function () {return new C}}});"),
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {});"));
+  }
+
+  public void testObjectDefineProperties8() {
+    enableTypeCheck();
+
+    test(
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {prop:{set:function (a) {return alert(a)}}});"),
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {});"));
+  }
+
+  public void testObjectDefineProperties_used_setter_removed() {
+    // TODO: Either remove fix this or document it as a limitation of advanced mode optimizations.
+    enableTypeCheck();
+
+    test(
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {prop:{set:function (a) {alert(2)}}});",
+            "C.prop = 2;"),
+        LINE_JOINER.join(
+            "/** @constructor */ function C() {}",
+            "Object.defineProperties(C, {});2"));
+  }
+
 }

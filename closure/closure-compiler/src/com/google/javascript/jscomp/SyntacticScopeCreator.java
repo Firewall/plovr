@@ -19,7 +19,6 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 
 /**
  * <p>The syntactic scope creator scans the parse tree to create a Scope object
@@ -116,8 +115,8 @@ class SyntacticScopeCreator implements ScopeCreator {
       // Body
       scanVars(body);
     } else {
-      // It's the global block
-      Preconditions.checkState(scope.getParent() == null);
+      // It's either a module or the global block
+      Preconditions.checkState(n.isModuleBody() || scope.getParent() == null);
       scanVars(n);
     }
   }
@@ -127,7 +126,7 @@ class SyntacticScopeCreator implements ScopeCreator {
    */
   private void scanVars(Node n) {
     switch (n.getType()) {
-      case Token.VAR:
+      case VAR:
         // Declare all variables. e.g. var x = 1, y, z;
         for (Node child = n.getFirstChild();
              child != null;) {
@@ -137,7 +136,7 @@ class SyntacticScopeCreator implements ScopeCreator {
         }
         return;
 
-      case Token.FUNCTION:
+      case FUNCTION:
         if (NodeUtil.isFunctionExpression(n)) {
           return;
         }
@@ -150,20 +149,21 @@ class SyntacticScopeCreator implements ScopeCreator {
         declareVar(n.getFirstChild());
         return;   // should not examine function's children
 
-      case Token.CATCH:
-        Preconditions.checkState(n.getChildCount() == 2);
-        Preconditions.checkState(n.getFirstChild().isName());
-        // the first child is the catch var and the second child
-        // is the code block
+      case CATCH:
+        Preconditions.checkState(n.getChildCount() == 2, n);
+        // The first child is the catch var and the second child
+        // is the code block.
 
         final Node var = n.getFirstChild();
+        Preconditions.checkState(var.isName(), var);
+
         final Node block = var.getNext();
 
         declareVar(var);
         scanVars(block);
-        return;  // only one child to scan
+        return; // only one child to scan
 
-      case Token.SCRIPT:
+      case SCRIPT:
         inputId = n.getInputId();
         Preconditions.checkNotNull(inputId);
         break;
@@ -203,7 +203,7 @@ class SyntacticScopeCreator implements ScopeCreator {
    * @param n The node corresponding to the variable name.
    */
   private void declareVar(Node n) {
-    Preconditions.checkState(n.isName());
+    Preconditions.checkState(n.isName(), n);
 
     CompilerInput input = compiler.getInput(inputId);
     String name = n.getString();

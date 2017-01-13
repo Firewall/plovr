@@ -16,6 +16,7 @@
 
 package com.google.javascript.jscomp;
 
+import com.google.common.base.Predicate;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
@@ -24,6 +25,7 @@ import com.google.javascript.jscomp.Normalize.NormalizeStatements;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfoBuilder;
+import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
@@ -66,9 +68,15 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
     if (!n.isClass() && !n.isFunction() && !nameNode.hasChildren()
         && (parent == null || !NodeUtil.isEnhancedFor(parent))
         && !n.isCatch()
-        && !n.isFromExterns()) {
-      nameNode.addChildToFront(
-          IR.name("undefined").useSourceInfoIfMissingFrom(nameNode));
+        && inLoop(n)) {
+      Node undefined = IR.name("undefined");
+      if (nameNode.getJSDocInfo() != null || n.getJSDocInfo() != null) {
+        JSDocInfoBuilder jsDoc = new JSDocInfoBuilder(false);
+        jsDoc.recordType(new JSTypeExpression(new Node(Token.QMARK), n.getSourceFileName()));
+        undefined = IR.cast(undefined, jsDoc.build());
+      }
+      undefined.useSourceInfoFromForTree(nameNode);
+      nameNode.addChildToFront(undefined);
     }
 
     String oldName = nameNode.getString();
@@ -103,15 +111,15 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
 
   @Override
   public void process(Node externs, Node root) {
-    NodeTraversal.traverseRoots(compiler, new CollectUndeclaredNames(), externs, root);
-    NodeTraversal.traverseRoots(compiler, this, externs, root);
-    NodeTraversal.traverseRoots(compiler, new Es6RenameReferences(renameMap), externs, root);
+    NodeTraversal.traverseRootsEs6(compiler, new CollectUndeclaredNames(), externs, root);
+    NodeTraversal.traverseRootsEs6(compiler, this, externs, root);
+    NodeTraversal.traverseRootsEs6(compiler, new Es6RenameReferences(renameMap), externs, root);
 
     LoopClosureTransformer transformer = new LoopClosureTransformer();
-    NodeTraversal.traverseRoots(compiler, transformer, externs, root);
+    NodeTraversal.traverseRootsEs6(compiler, transformer, externs, root);
     transformer.transformLoopClosure();
     varify();
-    NodeTraversal.traverseRoots(
+    NodeTraversal.traverseRootsEs6(
         compiler, new RewriteBlockScopedFunctionDeclaration(), externs, root);
   }
 
@@ -128,14 +136,66 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
     NodeTraversal.traverseEs6(compiler, scriptRoot, new RewriteBlockScopedFunctionDeclaration());
   }
 
+  /**
+   * Whether n is inside a loop. If n is inside a function which is inside a loop, we do not
+   * consider it to be inside a loop.
+   */
+  private boolean inLoop(Node n) {
+    Node enclosingNode = NodeUtil.getEnclosingNode(n, loopPredicate);
+    return enclosingNode != null && enclosingNode.getType() != Token.FUNCTION;
+  }
+
+  private static final Predicate<Node> loopPredicate = new Predicate<Node>() {
+    @Override
+    public boolean apply(Node n) {
+      return n.getType() == Token.WHILE
+          || n.getType() == Token.FOR
+          || n.getType() == Token.FOR_OF
+          || n.getType() == Token.DO
+          || n.getType() == Token.FUNCTION;
+    }
+  };
+
+  private static void extractInlineJSDoc(Node srcDeclaration, Node srcName, Node destDeclaration) {
+    JSDocInfo existingInfo = srcDeclaration.getJSDocInfo();
+    if (existingInfo == null) {
+      // Extract inline JSDoc from "src" and add it to the "dest" node.
+      existingInfo = srcName.getJSDocInfo();
+      srcName.setJSDocInfo(null);
+    }
+    JSDocInfoBuilder builder = JSDocInfoBuilder.maybeCopyFrom(existingInfo);
+    destDeclaration.setJSDocInfo(builder.build());
+  }
+
+  private static void maybeAddConstJSDoc(Node srcDeclaration, Node srcParent, Node srcName,
+      Node destDeclaration) {
+    if (srcDeclaration.isConst()
+        // Don't add @const for the left side of a for/in. If we do we get warnings from the NTI.
+        && !(NodeUtil.isForIn(srcParent) && srcDeclaration == srcParent.getFirstChild())) {
+      extractInlineJSDoc(srcDeclaration, srcName, destDeclaration);
+      JSDocInfoBuilder builder = JSDocInfoBuilder.maybeCopyFrom(destDeclaration.getJSDocInfo());
+      builder.recordConstancy();
+      destDeclaration.setJSDocInfo(builder.build());
+    }
+  }
+
+  private static void handleDeclarationList(Node declarationList, Node parent) {
+    // Normalize: "const i = 0, j = 0;" becomes "/** @const */ var i = 0; /** @const */ var j = 0;"
+    while (declarationList.hasMoreThanOneChild()) {
+      Node name = declarationList.getLastChild();
+      Node newDeclaration = IR.var(name.detachFromParent()).useSourceInfoFrom(declarationList);
+      maybeAddConstJSDoc(declarationList, parent, name, newDeclaration);
+      parent.addChildAfter(newDeclaration, declarationList);
+    }
+    maybeAddConstJSDoc(declarationList, parent, declarationList.getFirstChild(), declarationList);
+    declarationList.setType(Token.VAR);
+  }
+
   private void varify() {
     if (!letConsts.isEmpty()) {
       for (Node n : letConsts) {
         if (n.isConst()) {
-          JSDocInfoBuilder builder = JSDocInfoBuilder.maybeCopyFrom(n.getJSDocInfo());
-          builder.recordConstancy();
-          JSDocInfo info = builder.build();
-          n.setJSDocInfo(info);
+          handleDeclarationList(n, n.getParent());
         }
         n.setType(Token.VAR);
       }
@@ -257,27 +317,27 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
         // They are initialized lazily by changing declarations into assignments
         // later.
         LoopObject object = loopObjectMap.get(loopNode);
-        Node objectLit = IR.objectlit();
         Node objectLitNextIteration = IR.objectlit();
         for (Var var : object.vars) {
-          objectLit.addChildToBack(IR.stringKey(var.name, IR.name("undefined")));
           objectLitNextIteration.addChildToBack(
-              IR.stringKey(var.name, IR.getprop(IR.name(object.name),
-              IR.string(var.name))));
+              IR.stringKey(var.name, IR.getprop(IR.name(object.name), IR.string(var.name))));
         }
 
         Node updateLoopObject = IR.assign(IR.name(object.name), objectLitNextIteration);
-        loopNode.getParent().addChildBefore(
-            IR.var(IR.name(object.name), objectLit)
-                .useSourceInfoIfMissingFromForTree(loopNode),
-            loopNode);
+        Node objectLit =
+            IR.var(IR.name(object.name), IR.objectlit()).useSourceInfoFromForTree(loopNode);
+        loopNode.getParent().addChildBefore(objectLit, loopNode);
         if (NodeUtil.isVanillaFor(loopNode)) { // For
           // The initializer is pulled out and placed prior to the loop.
           Node initializer = loopNode.getFirstChild();
           loopNode.replaceChild(initializer, IR.empty());
           if (!initializer.isEmpty()) {
+            if (!NodeUtil.isNameDeclaration(initializer)) {
+              initializer = IR.exprResult(initializer).useSourceInfoFrom(initializer);
+            }
             loopNode.getParent().addChildBefore(initializer, loopNode);
           }
+
           Node increment = loopNode.getChildAtIndex(2);
           if (increment.isEmpty()) {
             loopNode.replaceChild(
@@ -311,35 +371,32 @@ public final class Es6RewriteBlockScopedDeclaration extends AbstractPostOrderCal
               loopNode.getLastChild().addChildToFront(
                   IR.exprResult(IR.assign(
                       IR.getprop(IR.name(object.name), IR.string(var.name)),
-                      IR.name(var.name)))
+                      var.getNameNode().cloneNode()))
                       .useSourceInfoIfMissingFromForTree(reference));
             } else {
               if (NodeUtil.isNameDeclaration(reference.getParent())) {
                 Node declaration = reference.getParent();
                 Node grandParent = declaration.getParent();
-                // Normalize: "let i = 0, j = 0;" becomes "let i = 0; let j = 0;"
-                while (declaration.getChildCount() > 1) {
-                  Node name = declaration.getLastChild();
-                  grandParent.addChildAfter(
-                      IR.declaration(
-                          name.detachFromParent(), declaration.getType())
-                          .useSourceInfoIfMissingFromForTree(declaration),
-                      declaration);
-                }
-
+                handleDeclarationList(declaration, grandParent);
+                declaration = reference.getParent(); // Might have changed after normalization.
                 // Change declaration to assignment, or just drop it if there's
                 // no initial value.
                 if (reference.hasChildren()) {
-                  declaration = reference.getParent(); // Might have changed now
-                  Node newReference = IR.name(var.name);
-                  Node replacement = IR.exprResult(
-                      IR.assign(newReference, reference.removeFirstChild()))
-                          .useSourceInfoIfMissingFromForTree(declaration);
+                  Node newReference = reference.cloneNode();
+                  Node assign = IR.assign(newReference, reference.removeFirstChild());
+                  extractInlineJSDoc(declaration, reference, declaration);
+                  maybeAddConstJSDoc(declaration, grandParent, reference, declaration);
+                  assign.setJSDocInfo(declaration.getJSDocInfo());
+
+                  Node replacement = IR.exprResult(assign)
+                      .useSourceInfoIfMissingFromForTree(declaration);
                   grandParent.replaceChild(declaration, replacement);
                   reference = newReference;
                 } else {
                   grandParent.removeChild(declaration);
                 }
+                letConsts.remove(declaration);
+                compiler.reportCodeChange();
               }
 
               if (reference.getParent().isCall()

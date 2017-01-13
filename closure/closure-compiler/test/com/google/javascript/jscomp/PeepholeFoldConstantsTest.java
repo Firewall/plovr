@@ -36,25 +36,23 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
 
   private boolean late;
 
-  // TODO(user): Remove this when we no longer need to do string comparison.
-  private PeepholeFoldConstantsTest(boolean compareAsTree) {
-    super("", compareAsTree);
-  }
-
-  public PeepholeFoldConstantsTest() {
-    super("");
-  }
-
   @Override
-  public void setUp() {
+  public void setUp() throws Exception {
+    super.setUp();
     late = false;
   }
 
   @Override
   public CompilerPass getProcessor(final Compiler compiler) {
     CompilerPass peepholePass = new PeepholeOptimizationsPass(compiler,
-          new PeepholeFoldConstants(late));
+          new PeepholeFoldConstants(late, compiler.getOptions().useTypesForOptimization));
     return peepholePass;
+  }
+
+  @Override
+  protected CompilerOptions getOptions(CompilerOptions options) {
+    options.useTypesForOptimization = true;
+    return super.getOptions(options);
   }
 
   @Override
@@ -73,14 +71,6 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
 
   private void fold(String js, String expected, DiagnosticType warning) {
     test(js, expected, null, warning);
-  }
-
-  // TODO(user): This is same as fold() except it uses string comparison. Any
-  // test that needs tell us where a folding is constructing an invalid AST.
-  private void assertResultString(String js, String expected) {
-    PeepholeFoldConstantsTest scTest = new PeepholeFoldConstantsTest(false);
-
-    scTest.test(js, expected);
   }
 
   public void testUndefinedComparison1() {
@@ -217,6 +207,7 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     fold("null === undefined", "false");
     fold("null === null", "true");
     fold("null === void 0", "false");
+    foldSame("null === x");
 
     foldSame("null == this");
     foldSame("null == x");
@@ -243,14 +234,18 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     fold("null >= null", "true");
     fold("null <= null", "true");
 
-    foldSame("0 < null"); // foldable
+    fold("0 < null", "false");
+    fold("0 > null", "false");
+    fold("0 >= null", "true");
     fold("true > null", "true");
-    foldSame("'hi' >= null"); // foldable
+    fold("'hi' < null", "false");
+    fold("'hi' >= null", "false");
     fold("null <= null", "true");
 
-    foldSame("null < 0");  // foldable
+    fold("null < 0", "false");
     fold("null > true", "false");
-    foldSame("null >= 'hi'"); // foldable
+    fold("null < 'hi'", "false");
+    fold("null >= 'hi'", "false");
     fold("null <= null", "true");
 
     fold("null == null", "true");
@@ -301,6 +296,156 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     foldSame("x == null");
   }
 
+  public void testBooleanBooleanComparison() {
+    foldSame("!x == !y");
+    foldSame("!x < !y");
+    foldSame("!x !== !y");
+
+    foldSame("!x == !x"); // foldable
+    foldSame("!x < !x"); // foldable
+    foldSame("!x !== !x"); // foldable
+  }
+
+  public void testBooleanNumberComparison() {
+    foldSame("!x == +y");
+    foldSame("!x <= +y");
+    fold("!x !== +y", "true");
+  }
+
+  public void testNumberBooleanComparison() {
+    foldSame("+x == !y");
+    foldSame("+x <= !y");
+    fold("+x === !y", "false");
+  }
+
+  public void testBooleanStringComparison() {
+    foldSame("!x == '' + y");
+    foldSame("!x <= '' + y");
+    fold("!x !== '' + y", "true");
+  }
+
+  public void testStringBooleanComparison() {
+    foldSame("'' + x == !y");
+    foldSame("'' + x <= !y");
+    fold("'' + x === !y", "false");
+  }
+
+  public void testNumberNumberComparison() {
+    fold("1 > 1", "false");
+    fold("2 == 3", "false");
+    fold("3.6 === 3.6", "true");
+    foldSame("+x > +y");
+    foldSame("+x == +y");
+    foldSame("+x === +y");
+    foldSame("+x == +x");
+    foldSame("+x === +x");
+
+    foldSame("+x > +x"); // foldable
+  }
+
+  public void testStringStringComparison() {
+    fold("'a' < 'b'", "true");
+    fold("'a' <= 'b'", "true");
+    fold("'a' > 'b'", "false");
+    fold("'a' >= 'b'", "false");
+    fold("+'a' < +'b'", "false");
+    foldSame("typeof a < 'a'");
+    foldSame("'a' >= typeof a");
+    fold("typeof a < typeof a", "false");
+    fold("typeof a >= typeof a", "true");
+    fold("typeof 3 > typeof 4", "false");
+    fold("typeof function() {} < typeof function() {}", "false");
+    fold("'a' == 'a'", "true");
+    fold("'b' != 'a'", "true");
+    foldSame("'undefined' == typeof a");
+    foldSame("typeof a != 'number'");
+    foldSame("'undefined' == typeof a");
+    foldSame("'undefined' == typeof a");
+    fold("typeof a == typeof a", "true");
+    fold("'a' === 'a'", "true");
+    fold("'b' !== 'a'", "true");
+    fold("typeof a === typeof a", "true");
+    fold("typeof a !== typeof a", "false");
+    foldSame("'' + x <= '' + y");
+    foldSame("'' + x != '' + y");
+    foldSame("'' + x === '' + y");
+
+    foldSame("'' + x <= '' + x"); // potentially foldable
+    foldSame("'' + x != '' + x"); // potentially foldable
+    foldSame("'' + x === '' + x"); // potentially foldable
+  }
+
+  public void testNumberStringComparison() {
+    fold("1 < '2'", "true");
+    fold("2 > '1'", "true");
+    fold("123 > '34'", "true");
+    fold("NaN >= 'NaN'", "false");
+    fold("1 == '2'", "false");
+    fold("1 != '1'", "false");
+    fold("NaN == 'NaN'", "false");
+    fold("1 === '1'", "false");
+    fold("1 !== '1'", "true");
+    foldSame("+x > '' + y");
+    foldSame("+x == '' + y");
+    fold("+x !== '' + y", "true");
+  }
+
+  public void testStringNumberComparison() {
+    fold("'1' < 2", "true");
+    fold("'2' > 1", "true");
+    fold("'123' > 34", "true");
+    fold("'NaN' < NaN", "false");
+    fold("'1' == 2", "false");
+    fold("'1' != 1", "false");
+    fold("'NaN' == NaN", "false");
+    fold("'1' === 1", "false");
+    fold("'1' !== 1", "true");
+    foldSame("'' + x < +y");
+    foldSame("'' + x == +y");
+    fold("'' + x === +y", "false");
+  }
+
+  public void testNaNComparison() {
+    fold("NaN < NaN", "false");
+    fold("NaN >= NaN", "false");
+    fold("NaN == NaN", "false");
+    fold("NaN === NaN", "false");
+
+    fold("NaN < null", "false");
+    fold("null >= NaN", "false");
+    fold("NaN == null", "false");
+    fold("null != NaN", "true");
+    fold("null === NaN", "false");
+
+    fold("NaN < undefined", "false");
+    fold("undefined >= NaN", "false");
+    fold("NaN == undefined", "false");
+    fold("undefined != NaN", "true");
+    fold("undefined === NaN", "false");
+
+    foldSame("NaN < x");
+    foldSame("x >= NaN");
+    foldSame("NaN == x");
+    foldSame("x != NaN");
+    fold("NaN === x", "false");
+    fold("x !== NaN", "true");
+    foldSame("NaN == foo()");
+  }
+
+  public void testObjectComparison1() {
+    fold("!new Date()", "false");
+    fold("!!new Date()", "true");
+
+    fold("new Date() == null", "false");
+    fold("new Date() == undefined", "false");
+    fold("new Date() != null", "true");
+    fold("new Date() != undefined", "true");
+    fold("null == new Date()", "false");
+    fold("undefined == new Date()", "false");
+    fold("null != new Date()", "true");
+    fold("undefined != new Date()", "true");
+  }
+
   public void testUnaryOps() {
     // These cases are handled by PeepholeRemoveDeadCode.
     foldSame("!foo()");
@@ -341,11 +486,10 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
   }
 
   public void testUnaryOpsStringCompare() {
-    // Negatives are folded into a single number node.
-    assertResultString("a=-1", "a=-1");
-    assertResultString("a=~0", "a=-1");
-    assertResultString("a=~1", "a=-2");
-    assertResultString("a=~101", "a=-102");
+    fold("a = -1", "a = -1");
+    fold("a = ~0", "a = -1");
+    fold("a = ~1", "a = -2");
+    fold("a = ~101", "a = -102");
   }
 
   public void testFoldLogicalOp() {
@@ -494,14 +638,23 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     fold("x = y | ('x'?'1':'2')", "x=y|('x'?1:2)");
   }
 
-  public void testFoldingAdd() {
+  public void testFoldingAdd1() {
     fold("x = null + true", "x=1");
     foldSame("x = a + true");
+    fold("x = '' + {}", "x = '[object Object]'");
+    fold("x = [] + {}", "x = '[object Object]'");
+    fold("x = {} + []", "x = '[object Object]'");
+    fold("x = {} + ''", "x = '[object Object]'");
+  }
+
+  public void testFoldingAdd2() {
+    fold("x = false + []", "x='false'");
+    fold("x = [] + true",  "x='true'");
+    fold("NaN + []", "'NaN'");
   }
 
   public void testFoldBitwiseOpStringCompare() {
-    assertResultString("x = -1 | 0", "x=-1");
-    // EXPR_RESULT case is in in PeepholeIntegrationTest
+    fold("x = -1 | 0", "x = -1");
   }
 
   public void testFoldBitShifts() {
@@ -558,12 +711,11 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
   }
 
   public void testFoldBitShiftsStringCompare() {
-    // Negative numbers.
-    assertResultString("x = -1 << 1", "x=-2");
-    assertResultString("x = -1 << 8", "x=-256");
-    assertResultString("x = -1 >> 1", "x=-1");
-    assertResultString("x = -2 >> 1", "x=-1");
-    assertResultString("x = -1 >> 0", "x=-1");
+    fold("x = -1 << 1", "x = -2");
+    fold("x = -1 << 8", "x = -256");
+    fold("x = -1 >> 1", "x = -1");
+    fold("x = -2 >> 1", "x = -1");
+    fold("x = -1 >> 0", "x = -1");
   }
 
   public void testStringAdd() {
@@ -637,8 +789,7 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
   }
 
   public void testFoldArithmeticStringComp() {
-    // Negative Numbers.
-    assertResultString("x = 10 - 20", "x=-10");
+    fold("x = 10 - 20", "x = -10");
   }
 
   public void testFoldComparison() {
@@ -657,7 +808,7 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     fold("x = 3 < 3", "x = false");
     fold("x = 10 > 1.0", "x = true");
     fold("x = 10 > 10.25", "x = false");
-    fold("x = y == y", "x = y==y");
+    fold("x = y == y", "x = y==y"); // Maybe foldable given type information
     fold("x = y < y", "x = false");
     fold("x = y > y", "x = false");
     fold("x = 1 <= 1", "x = true");
@@ -728,11 +879,10 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     fold("\"\" === ''", "true");
     foldSame("foo() === bar()");
 
-    // TODO(johnlenz): It would be nice to handle these cases as well.
-    foldSame("1 === '1'");
-    foldSame("1 === true");
-    foldSame("1 !== '1'");
-    foldSame("1 !== true");
+    fold("1 === '1'", "false");
+    fold("1 === true", "false");
+    fold("1 !== '1'", "true");
+    fold("1 !== true", "true");
 
     fold("1 !== 0", "true");
     fold("'abc' !== 'def'", "true");
@@ -772,7 +922,18 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     fold("!0 === null", "false");
   }
 
-  public void testFoldGetElem() {
+  public void testFoldComparison4() {
+    foldSame("[] == false");  // true
+    foldSame("[] == true");   // false
+    foldSame("[0] == false"); // true
+    foldSame("[0] == true");  // false
+    foldSame("[1] == false"); // false
+    foldSame("[1] == true");  // true
+    foldSame("({}) == false");  // false
+    foldSame("({}) == true");   // true
+  }
+
+  public void testFoldGetElem1() {
     fold("x = [,10][0]", "x = void 0");
     fold("x = [10, 20][0]", "x = 10");
     fold("x = [10, 20][1]", "x = 20");
@@ -788,6 +949,20 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     fold("x = [0, foo()][1]", "x = foo()");
     foldSame("x = [0, foo()][0]");
     foldSame("for([1][0] in {});");
+  }
+
+  public void testFoldGetElem2() {
+    fold("x = 'string'[5]", "x = 'g'");
+    fold("x = 'string'[0]", "x = 's'");
+    fold("x = 's'[0]", "x = 's'");
+    foldSame("x = '\uD83D\uDCA9'[0]");
+
+    testSame("x = 'string'[0.5]",
+        PeepholeFoldConstants.INVALID_GETELEM_INDEX_ERROR);
+    testSame("x = 'string'[-1]",
+        PeepholeFoldConstants.INDEX_OUT_OF_BOUNDS_ERROR);
+    testSame("x = 'string'[6]",
+        PeepholeFoldConstants.INDEX_OUT_OF_BOUNDS_ERROR);
   }
 
   public void testFoldComplex() {
@@ -933,14 +1108,14 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
   }
 
   public void testFoldLiteralNames() {
-    foldSame("NaN == NaN");
-    foldSame("Infinity == Infinity");
-    foldSame("Infinity == NaN");
+    fold("NaN == NaN", "false");
+    fold("Infinity == Infinity", "true");
+    fold("Infinity == NaN", "false");
     fold("undefined == NaN", "false");
     fold("undefined == Infinity", "false");
 
-    foldSame("Infinity >= Infinity");
-    foldSame("NaN >= NaN");
+    fold("Infinity >= Infinity", "true");
+    fold("NaN >= NaN", "false");
   }
 
   public void testFoldLiteralsTypeMismatches() {
@@ -1050,7 +1225,7 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
 
   public void testFoldMixed() {
     fold("''+[1]", "'1'");
-    foldSame("false+[]"); // would like: "\"false\""
+    fold("false+[]", "\"false\"");
   }
 
   public void testFoldVoid() {
@@ -1142,6 +1317,34 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     testSame("[][1] = 1;");
   }
 
+  public void testTypeBasedFoldConstant() {
+    enableTypeCheck();
+    test("var /** number */ x; x + 1 + 1 + x",
+         "var /** number */ x; x + 2 + x");
+
+    test("var /** boolean */ x; x + 1 + 1 + x",
+         "var /** boolean */ x; x + 2 + x");
+
+    test("var /** null */ x; x + 1 + 1 + x",
+         "var /** null */ x; 2");
+
+    test("var /** undefined */ x; x + 1 + 1 + x",
+         "var /** undefined */ x; NaN");
+
+    test("var /** null */ x; var y = true > x;", "var /** null */ x; var y = true;");
+
+    test("var /** null */ x; var y = null > x;", "var /** null */ x; var y = false;");
+
+    testSame("var /** string */ x; x + 1 + 1 + x");
+    disableTypeCheck();
+  }
+
+  public void foldDefineProperties1() {
+    test("Object.defineProperties({}, {})", "{}");
+    test("Object.defineProperties(a, {})", "a");
+    testSame("Object.defineProperties(a, {anything:1})");
+  }
+
   private static final List<String> LITERAL_OPERANDS =
       ImmutableList.of(
           "null",
@@ -1194,16 +1397,17 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
           String inverse = inverses.get(op);
 
           // Test invertability.
-          if (comparators.contains(op) &&
-              (uncomparables.contains(a) || uncomparables.contains(b))) {
-            assertSameResults(join(a, op, b), "false");
-            assertSameResults(join(a, inverse, b), "false");
+          if (comparators.contains(op)) {
+              if (uncomparables.contains(a) || uncomparables.contains(b)
+                  || (a.equals("null") && NodeUtil.getStringNumberValue(b) == null)) {
+                assertSameResults(join(a, op, b), "false");
+                assertSameResults(join(a, inverse, b), "false");
+              }
           } else if (a.equals(b) && equalitors.contains(op)) {
             if (a.equals("NaN") ||
                 a.equals("Infinity") ||
                 a.equals("-Infinity")) {
-              foldSame(join(a, op, b));
-              foldSame(join(a, inverse, b));
+              fold(join(a, op, b), a.equals("NaN") ? "false" : "true");
             } else {
               assertSameResults(join(a, op, b), "true");
               assertSameResults(join(a, inverse, b), "false");
@@ -1238,8 +1442,7 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
           String op = operators.get(iOp);
 
           // Test commutativity.
-          // TODO(nicksantos): Eventually, all cases should be collapsed.
-          assertSameResultsOrUncollapsed(join(a, op, b), join(b, op, a));
+          assertSameResults(join(a, op, b), join(b, op, a));
         }
       }
     }
@@ -1249,18 +1452,8 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
     foldSame("var x = 3 * (r ? Infinity : -Infinity);");
   }
 
-  private String join(String operandA, String op, String operandB) {
+  private static String join(String operandA, String op, String operandB) {
     return operandA + " " + op + " " + operandB;
-  }
-
-  private void assertSameResultsOrUncollapsed(String exprA, String exprB) {
-    String resultA = process(exprA);
-    if (resultA.equals(print(exprA))) {
-      foldSame(exprA);
-      foldSame(exprB);
-    } else {
-      assertSameResults(exprA, exprB);
-    }
   }
 
   private void assertSameResults(String exprA, String exprB) {
@@ -1279,10 +1472,6 @@ public final class PeepholeFoldConstantsTest extends CompilerTestCase {
 
   private String process(String js) {
     return printHelper(js, true);
-  }
-
-  private String print(String js) {
-    return printHelper(js, false);
   }
 
   private String printHelper(String js, boolean runProcessor) {

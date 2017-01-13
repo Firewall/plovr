@@ -21,7 +21,6 @@ import com.google.javascript.jscomp.SyntacticScopeCreator.DefaultRedeclarationHa
 import com.google.javascript.jscomp.SyntacticScopeCreator.RedeclarationHandler;
 import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 
 /**
  * <p>The syntactic scope creator scans the parse tree to create a Scope object
@@ -91,54 +90,37 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
 
       // Args: Declare function variables
       Preconditions.checkState(args.isParamList());
-      for (Node a = args.getFirstChild(); a != null; a = a.getNext()) {
-        if (a.isDefaultValue()) {
-          declareLHS(scope, a.getFirstChild());
-        } else {
-          declareLHS(scope, a);
-        }
+      declareLHS(scope, args);
+      // Since we create a separate scope for body, stop scanning here
+
+    } else if (n.isClass()) {
+      if (scope.getParent() != null) {
+        inputId = NodeUtil.getInputId(n);
       }
 
-      // Since we create a separate scope for body, stop scanning here
-    } else if (n.isBlock() || n.isFor() || n.isForOf()) {
+      final Node classNameNode = n.getFirstChild();
+      // Bleed the class name into the scope, if it hasn't
+      // been declared in the outer scope.
+      if (!classNameNode.isEmpty()) {
+        if (NodeUtil.isClassExpression(n)) {
+          declareVar(classNameNode);
+        }
+      }
+    } else if (n.isBlock() || n.isFor() || n.isForOf() || n.isSwitch() || n.isModuleBody()) {
       if (scope.getParent() != null) {
         inputId = NodeUtil.getInputId(n);
       }
       scanVars(n);
     } else {
-      // It's the global block
+      // n is the global SCRIPT node
       Preconditions.checkState(scope.getParent() == null);
       scanVars(n);
     }
   }
 
-  private void declareLHS(Scope declarationScope, Node lhs) {
-    if (lhs.isStringKey()) {
-      if (lhs.hasChildren()) {
-        declareLHS(declarationScope, lhs.getFirstChild());
-      } else {
-        declareVar(declarationScope, lhs);
-      }
-    } else if (lhs.isComputedProp()) {
-      declareLHS(declarationScope, lhs.getLastChild());
-    } else if (lhs.isName() || lhs.isRest()) {
+  private void declareLHS(Scope declarationScope, Node n) {
+    for (Node lhs : NodeUtil.getLhsNodesOfDeclaration(n)) {
       declareVar(declarationScope, lhs);
-    } else if (lhs.isDefaultValue()) {
-      declareLHS(declarationScope, lhs.getFirstChild());
-    } else if (lhs.isArrayPattern() || lhs.isObjectPattern()) {
-      for (Node child = lhs.getFirstChild(); child != null; child = child.getNext()) {
-        if (NodeUtil.isNameDeclaration(lhs.getParent()) && child.getNext() == null
-            && !lhs.getParent().getParent().isForOf()) {
-          // If the pattern is a direct child of the var/let/const node,
-          // then its last child is the RHS of the assignment, not a variable to
-          // be declared.
-          return;
-        }
-
-        declareLHS(declarationScope, child);
-      }
-    } else {
-      Preconditions.checkState(lhs.isEmpty(), "Invalid left-hand side: %s", lhs);
     }
   }
 
@@ -147,24 +129,20 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
     */
   private void scanVars(Node n) {
     switch (n.getType()) {
-      case Token.VAR:
-        for (Node child = n.getFirstChild(); child != null; child = child.getNext()) {
-          declareLHS(scope.getClosestHoistScope(), child);
-        }
+      case VAR:
+        declareLHS(scope.getClosestHoistScope(), n);
         return;
 
-      case Token.LET:
-      case Token.CONST:
+      case LET:
+      case CONST:
         // Only declare when scope is the current lexical scope
         if (!isNodeAtCurrentLexicalScope(n)) {
           return;
         }
-        for (Node child = n.getFirstChild(); child != null; child = child.getNext()) {
-          declareLHS(scope, child);
-        }
+        declareLHS(scope, n);
         return;
 
-      case Token.FUNCTION:
+      case FUNCTION:
         if (NodeUtil.isFunctionExpression(n) || !isNodeAtCurrentLexicalScope(n)) {
           return;
         }
@@ -177,7 +155,7 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
         declareVar(n.getFirstChild());
         return;   // should not examine function's children
 
-      case Token.CLASS:
+      case CLASS:
         if (NodeUtil.isClassExpression(n) || !isNodeAtCurrentLexicalScope(n)) {
           return;
         }
@@ -189,23 +167,20 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
         declareVar(n.getFirstChild());
         return;  // should not examine class's children
 
-      case Token.CATCH:
-        Preconditions.checkState(n.getChildCount() == 2);
+      case CATCH:
+        Preconditions.checkState(n.getChildCount() == 2, n);
         // the first child is the catch var and the second child
         // is the code block
-
-        final Node exception = n.getFirstChild();
-        final Node block = exception.getNext();
-
         if (isNodeAtCurrentLexicalScope(n)) {
-          declareLHS(scope, exception);
+          declareLHS(scope, n);
         }
         // A new scope is not created for this BLOCK because there is a scope
         // created for the BLOCK above the CATCH
+        final Node block = n.getSecondChild();
         scanVars(block);
         return;  // only one child to scan
 
-      case Token.SCRIPT:
+      case SCRIPT:
         inputId = n.getInputId();
         Preconditions.checkNotNull(inputId);
         break;
@@ -234,7 +209,7 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
    * @param n The node corresponding to the variable name.
    */
   private void declareVar(Scope s, Node n) {
-    Preconditions.checkState(n.isName() || n.isRest() || n.isStringKey(),
+    Preconditions.checkState(n.isName() || n.isStringKey(),
         "Invalid node for declareVar: %s", n);
 
     String name = n.getString();
@@ -254,20 +229,26 @@ class Es6SyntacticScopeCreator implements ScopeCreator {
 
   /**
    * Determines whether the name should be declared at current lexical scope.
-   * Assume the parent node is a BLOCK, FOR, FOR_OF, SCRIPT or LABEL.
-   * TODO(moz): Make sure this assumption holds.
+   * Assume the parent node is a BLOCK, FOR, FOR_OF, SCRIPT, MODULE_BODY, or LABEL.
    *
    * @param n The declaration node to be checked
    * @return whether the name should be declared at current lexical scope
    */
   private boolean isNodeAtCurrentLexicalScope(Node n) {
     Node parent = n.getParent();
-    Preconditions.checkState(parent.isBlock() || parent.isFor()
-        || parent.isForOf() || parent.isScript() || parent.isLabel());
+    Node grandparent = parent.getParent();
+    Preconditions.checkState(parent.isBlock() || parent.isFor() || parent.isForOf()
+        || parent.isScript() || parent.isModuleBody() || parent.isLabel(), parent);
+
+    if (parent.isSyntheticBlock()
+        && grandparent != null && (grandparent.isCase() || grandparent.isDefaultCase())) {
+      Node switchNode = grandparent.getParent();
+      return scope.getRootNode() == switchNode;
+    }
 
     if (parent == scope.getRootNode() || parent.isScript()
-        || (parent.getParent().isCatch()
-            && parent.getParent().getParent() == scope.getRootNode())) {
+        || (grandparent.isCatch()
+            && parent.getGrandparent() == scope.getRootNode())) {
       return true;
     }
 

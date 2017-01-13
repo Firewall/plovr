@@ -102,26 +102,15 @@ class CollapseProperties implements CompilerPass {
   /** Maps names (e.g. "a.b.c") to nodes in the global namespace tree */
   private Map<String, Name> nameMap;
 
-  private final boolean inlineAliases;
-
-  /**
-   * @param inlineAliases Whether we're allowed to inline local aliases of
-   *     namespaces, etc. It's set to false only by the deprecated property-
-   *     renaming policies {@code HEURISTIC} and {@code AGGRESSIVE_HEURISTIC}.
-   */
-  CollapseProperties(AbstractCompiler compiler, boolean inlineAliases) {
+  CollapseProperties(AbstractCompiler compiler) {
     this.compiler = compiler;
-    this.inlineAliases = inlineAliases;
   }
 
   @Override
   public void process(Node externs, Node root) {
     GlobalNamespace namespace;
     namespace = new GlobalNamespace(compiler, root);
-
-    if (inlineAliases) {
-      inlineAliases(namespace);
-    }
+    inlineAliases(namespace);
     nameMap = namespace.getNameIndex();
     globalNames = namespace.getNameForest();
     checkNamespaces();
@@ -301,7 +290,7 @@ class CollapseProperties implements CompilerPass {
           } else if (NodeUtil.isObjectLitKey(target)) {
             // Object literal key definitions are a little trickier, as we
             // need to find the assignment target
-            Node gparent = target.getParent().getParent();
+            Node gparent = target.getGrandparent();
             if (gparent.isAssign()) {
               target = gparent.getFirstChild();
             } else {
@@ -618,7 +607,7 @@ class CollapseProperties implements CompilerPass {
     // This method has to work for both GETPROP chains and, in rare cases,
     // OBJLIT keys, possibly nested. That's why we check for children before
     // proceeding. In the OBJLIT case, we don't need to do anything.
-    int nType = n.getType();
+    Token nType = n.getType();
     boolean isQName = nType == Token.NAME || nType == Token.GETPROP;
     boolean isObjKey = NodeUtil.isObjectLitKey(n);
     Preconditions.checkState(isObjKey || isQName);
@@ -642,8 +631,8 @@ class CollapseProperties implements CompilerPass {
    */
   private void flattenNameRef(String alias, Node n, Node parent,
       String originalName) {
-    Preconditions.checkArgument(n.isGetProp(),
-        "Expected GETPROP, found %s. Node: %s", Token.name(n.getType()), n);
+    Preconditions.checkArgument(
+        n.isGetProp(), "Expected GETPROP, found %s. Node: %s", n.getType(), n);
 
     // BEFORE:
     //   getprop
@@ -817,14 +806,14 @@ class CollapseProperties implements CompilerPass {
     }
 
     switch (decl.node.getParent().getType()) {
-      case Token.ASSIGN:
+      case ASSIGN:
         updateObjLitOrFunctionDeclarationAtAssignNode(
             n, alias, canCollapseChildNames);
         break;
-      case Token.VAR:
+      case VAR:
         updateObjLitOrFunctionDeclarationAtVarNode(n, canCollapseChildNames);
         break;
-      case Token.FUNCTION:
+      case FUNCTION:
         updateFunctionDeclarationAtFunctionNode(n, canCollapseChildNames);
         break;
     }
@@ -891,7 +880,7 @@ class CollapseProperties implements CompilerPass {
       if (isObjLit) {
         declareVarsForObjLitValues(
             n, alias, rvalue,
-            varNode, varParent.getChildBefore(varNode), varParent);
+            varNode, varNode.getPrevious(), varParent);
       }
 
       addStubsForUndeclaredProperties(n, alias, varParent, varNode);
@@ -1109,8 +1098,8 @@ class CollapseProperties implements CompilerPass {
    */
   private int addStubsForUndeclaredProperties(
       Name n, String alias, Node parent, Node addAfter) {
-    Preconditions.checkState(n.canCollapseUnannotatedChildNames());
-    Preconditions.checkArgument(NodeUtil.isStatementBlock(parent));
+    Preconditions.checkState(n.canCollapseUnannotatedChildNames(), n);
+    Preconditions.checkArgument(NodeUtil.isStatementBlock(parent), parent);
     Preconditions.checkNotNull(addAfter);
     if (n.props == null) {
       return 0;

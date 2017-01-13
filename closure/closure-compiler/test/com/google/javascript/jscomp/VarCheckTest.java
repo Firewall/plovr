@@ -42,12 +42,10 @@ public final class VarCheckTest extends Es6CompilerTestCase {
     super.setUp();
     // Setup value set by individual tests to the appropriate defaults.
     super.allowExternsChanges(true);
-    super.enableAstValidation(true);
     strictModuleDepErrorLevel = CheckLevel.OFF;
     externValidationErrorLevel = null;
     sanityCheck = false;
     declarationCheck = false;
-    compareJsDoc = false;
   }
 
   @Override
@@ -83,6 +81,11 @@ public final class VarCheckTest extends Es6CompilerTestCase {
   protected int getNumRepetitions() {
     // Because we synthesize externs, the second pass won't emit a warning.
     return 1;
+  }
+
+  public void testShorthandObjLit() {
+    testErrorEs6("var x = {y};", VarCheck.UNDEFINED_VAR_ERROR);
+    testSameEs6("var {x} = {x: 5}; let y = x;");
   }
 
   public void testBreak() {
@@ -130,8 +133,7 @@ public final class VarCheckTest extends Es6CompilerTestCase {
   }
 
   public void testMultiplyDeclaredVars2() {
-    testSame("var y; try { y=1 } catch (x) {}" +
-         "try { y=1 } catch (x) {}");
+    testSame("var y; try { y=1 } catch (x) {} try { y=1 } catch (x) {}");
   }
 
   public void testMultiplyDeclaredVars3() {
@@ -144,15 +146,15 @@ public final class VarCheckTest extends Es6CompilerTestCase {
   }
 
   public void testMultiplyDeclaredLets() {
-    testErrorEs6("let x = 1; let x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
-    testErrorEs6("let x = 1; var x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
-    testErrorEs6("var x = 1; let x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+    testErrorEs6("let x = 1; let x = 2;", VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
+    testErrorEs6("let x = 1; var x = 2;", VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
+    testErrorEs6("var x = 1; let x = 2;", VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testMultiplyDeclaredConsts() {
-    testErrorEs6("const x = 1; const x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
-    testErrorEs6("const x = 1; var x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
-    testErrorEs6("var x = 1; const x = 2;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+    testErrorEs6("const x = 1; const x = 2;", VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
+    testErrorEs6("const x = 1; var x = 2;", VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
+    testErrorEs6("var x = 1; const x = 2;", VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testMultiplyDeclareLetsInDifferentScope() {
@@ -161,18 +163,27 @@ public final class VarCheckTest extends Es6CompilerTestCase {
   }
 
   public void testReferencedVarDefinedClass() {
-    testErrorEs6("var x; class x{ }", VarCheck.VAR_MULTIPLY_DECLARED_ERROR);
-    testErrorEs6("let x; class x{ }", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
-    testErrorEs6("const x = 1; class x{ }", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
-    testErrorEs6("class x{ } let x;", VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+    testErrorEs6("var x; class x{ }", VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
+    testErrorEs6("let x; class x{ }", VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
+    testErrorEs6("const x = 1; class x{ }", VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
+    testErrorEs6("class x{ } let x;", VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
+  }
+
+  public void testNamedClass() {
+    testSameEs6("class x {}");
+    testSameEs6("var x = class x {};");
+    testSameEs6("var y = class x {};");
+    testSameEs6("var y = class x { foo() { return new x; } };");
+    testErrorEs6("var Foo = class extends Bar {};", VarCheck.UNDEFINED_VAR_ERROR);
   }
 
   public void testVarReferenceInExterns() {
-    testSame("asdf;", "var asdf;", VarCheck.NAME_REFERENCE_IN_EXTERNS_ERROR);
+    testSame("asdf;", "var /** @suppress {duplicate} */ asdf;",
+        VarCheck.NAME_REFERENCE_IN_EXTERNS_ERROR);
   }
 
   public void testCallInExterns() {
-    testSame("yz();", "function yz() {}",
+    testSame("yz();", "function /** @suppress {duplicate} */ yz() {}",
         VarCheck.NAME_REFERENCE_IN_EXTERNS_ERROR);
   }
 
@@ -182,6 +193,26 @@ public final class VarCheckTest extends Es6CompilerTestCase {
 
   public void testVarAssignmentInExterns() {
     testSame("/** @type{{foo:string}} */ var foo; var asdf = foo;", "asdf.foo;", null);
+  }
+
+  public void testAliasesInExterns() {
+    externValidationErrorLevel = CheckLevel.ERROR;
+
+    testSame("var foo; /** @const */ var asdf = foo;", "", null);
+    testSame(
+        "var Foo; var ns = {}; /** @const */ ns.FooAlias = Foo;", "", null);
+    testSame(
+        LINE_JOINER.join(
+            "var ns = {}; /** @constructor */ ns.Foo = function() {};",
+            "var ns2 = {}; /** @const */ ns2.Bar = ns.Foo;"),
+        "", null);
+  }
+
+  public void testDuplicateNamespaceInExterns() {
+    testExternChanges(
+        "/** @const */ var ns = {}; /** @const */ var ns = {};",
+        "",
+        "/** @const */ var ns = {};");
   }
 
   public void testLetDeclarationInExterns() {
@@ -199,7 +230,7 @@ public final class VarCheckTest extends Es6CompilerTestCase {
   }
 
   public void testPropReferenceInExterns1() {
-    testSame("asdf.foo;", "var asdf;",
+    testSame("asdf.foo;", "var /** @suppress {duplicate} */ asdf;",
         VarCheck.UNDEFINED_EXTERN_VAR_ERROR);
   }
 
@@ -209,7 +240,7 @@ public final class VarCheckTest extends Es6CompilerTestCase {
   }
 
   public void testPropReferenceInExterns3() {
-    testSame("asdf.foo;", "var asdf;",
+    testSame("asdf.foo;", "var /** @suppress {duplicate} */ asdf;",
         VarCheck.UNDEFINED_EXTERN_VAR_ERROR);
 
     externValidationErrorLevel = CheckLevel.ERROR;
@@ -218,7 +249,7 @@ public final class VarCheckTest extends Es6CompilerTestCase {
          VarCheck.UNDEFINED_EXTERN_VAR_ERROR, true);
 
     externValidationErrorLevel = CheckLevel.OFF;
-    test("asdf.foo;", "var asdf;", "var asdf;", null, null);
+    test("asdf.foo;", "var asdf;", "var /** @suppress {duplicate} */ asdf;", null, null);
   }
 
   public void testPropReferenceInExterns4() {
@@ -236,8 +267,8 @@ public final class VarCheckTest extends Es6CompilerTestCase {
   }
 
   public void testFunctionDeclaredInBlock() {
-    testError("if (true) {function foo() {}} foo();", VarCheck.UNDEFINED_VAR_ERROR);
-    testError("foo(); if (true) {function foo() {}}", VarCheck.UNDEFINED_VAR_ERROR);
+    testErrorEs6("if (true) {function foo() {}} foo();", VarCheck.UNDEFINED_VAR_ERROR);
+    testErrorEs6("foo(); if (true) {function foo() {}}", VarCheck.UNDEFINED_VAR_ERROR);
 
     testSameEs6("if (true) {var foo = ()=>{}} foo();");
     testErrorEs6("if (true) {let foo = ()=>{}} foo();", VarCheck.UNDEFINED_VAR_ERROR);
@@ -264,6 +295,18 @@ public final class VarCheckTest extends Es6CompilerTestCase {
     testSame("function fn(a){ var b = a; }");
     testSame("function fn(a){ var a = 2; }");
     testError("function fn(){ var b = a; }", VarCheck.UNDEFINED_VAR_ERROR);
+
+    // Default parameters
+    testErrorEs6(
+        "function fn(a = b) { function g(a = 3) { var b; } }", VarCheck.UNDEFINED_VAR_ERROR);
+    testErrorEs6("function f(x=a) { let a; }", VarCheck.UNDEFINED_VAR_ERROR);
+    testErrorEs6("function f(x=a) { { let a; } }", VarCheck.UNDEFINED_VAR_ERROR);
+    testErrorEs6("function f(x=b) { function a(x=1) { var b; } }", VarCheck.UNDEFINED_VAR_ERROR);
+    testErrorEs6("function f(x=a) { var a; }", VarCheck.UNDEFINED_VAR_ERROR);
+    testErrorEs6("function f(x=a()) { function a() {} }", VarCheck.UNDEFINED_VAR_ERROR);
+    testErrorEs6("function f(x=[a]) { var a; }", VarCheck.UNDEFINED_VAR_ERROR);
+    testErrorEs6("function f(x = new foo.bar()) {}", VarCheck.UNDEFINED_VAR_ERROR);
+    testSameEs6("var foo = {}; foo.bar = class {}; function f(x = new foo.bar()) {}");
 
     testSameEs6("function fn(a = 2){ var b = a; }");
     testSameEs6("function fn(a = 2){ var a = 3; }");
@@ -487,8 +530,43 @@ public final class VarCheckTest extends Es6CompilerTestCase {
   }
 
   public void testDontAllowSuppressDupeOnLet() {
-    testErrorEs6("let a; /** @suppress {duplicate} */ let a; ",
-        VarCheck.LET_CONST_MULTIPLY_DECLARED_ERROR);
+    testErrorEs6(
+        "let a; /** @suppress {duplicate} */ let a; ",
+        VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
+
+    testErrorEs6(
+        "function f() { let a; /** @suppress {duplicate} */ let a; }",
+        VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
+  }
+
+  public void testDuplicateBlockScopedDeclarationInSwitch() {
+    testErrorEs6(
+        LINE_JOINER.join(
+            "function f(x) {",
+            "  switch (x) {",
+            "    case 'a':",
+            "      let z = 123;",
+            "      break;",
+            "    case 'b':",
+            "      let z = 234;",
+            "      break;",
+            "  }",
+            "}"),
+        VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
+
+    testErrorEs6(
+        LINE_JOINER.join(
+            "function f(x) {",
+            "  switch (x) {",
+            "    case 'a':",
+            "      class C {}",
+            "      break;",
+            "    case 'b':",
+            "      class C {}",
+            "      break;",
+            "  }",
+            "}"),
+        VarCheck.LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR);
   }
 
   public void testFunctionScopeArguments() {
@@ -519,7 +597,7 @@ public final class VarCheckTest extends Es6CompilerTestCase {
 
     @Override
     public void process(Node externs, Node root) {
-      NodeTraversal.traverseRoots(compiler,
+      NodeTraversal.traverseRootsEs6(compiler,
           new AbstractPostOrderCallback() {
             @Override
             public void visit(NodeTraversal t, Node n, Node parent) {

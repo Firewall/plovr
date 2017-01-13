@@ -183,7 +183,7 @@ class OptimizeArgumentsArray implements CompilerPass, ScopedCallback {
    */
   private boolean tryReplaceArguments(Scope scope) {
 
-    Node parametersList = scope.getRootNode().getFirstChild().getNext();
+    Node parametersList = scope.getRootNode().getSecondChild();
     Preconditions.checkState(parametersList.isParamList());
 
     // Keep track of rather this function modified the AST and needs to be
@@ -216,7 +216,7 @@ class OptimizeArgumentsArray implements CompilerPass, ScopedCallback {
 
       // We have something like arguments[x] where x is not a constant. That
       // means at least one of the access is not known.
-      if (!index.isNumber()) {
+      if (!index.isNumber() || index.getDouble() < 0) {
         // TODO(user): Its possible not to give up just yet. The type
         // inference did a 'semi value propagation'. If we know that string
         // is never a subclass of the type of the index. We'd know that
@@ -273,7 +273,7 @@ class OptimizeArgumentsArray implements CompilerPass, ScopedCallback {
 
       // Unnamed parameter.
       if (value >= numNamedParameter) {
-        ref.getParent().getParent().replaceChild(ref.getParent(),
+        ref.getGrandparent().replaceChild(ref.getParent(),
             IR.name(argNames[value - numNamedParameter]));
       } else {
 
@@ -287,7 +287,7 @@ class OptimizeArgumentsArray implements CompilerPass, ScopedCallback {
         for (int i = 0; i < value; i++) {
           name = name.getNext();
         }
-        ref.getParent().getParent().replaceChild(ref.getParent(),
+        ref.getGrandparent().replaceChild(ref.getParent(),
             IR.name(name.getString()));
       }
       changed = true;

@@ -18,7 +18,6 @@ package com.google.javascript.jscomp;
 
 import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.LinkedHashMultimap;
@@ -27,12 +26,9 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Multimap;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
-import com.google.javascript.jscomp.deps.ClosureSortedDependencies;
 import com.google.javascript.jscomp.deps.Es6SortedDependencies;
 import com.google.javascript.jscomp.deps.SortedDependencies;
-import com.google.javascript.jscomp.deps.SortedDependencies.CircularDependencyException;
 import com.google.javascript.jscomp.deps.SortedDependencies.MissingProvideException;
 import com.google.javascript.jscomp.graph.LinkedDirectedGraph;
 import com.google.javascript.jscomp.parsing.parser.util.format.SimpleFormat;
@@ -164,7 +160,6 @@ public final class JSModuleGraph {
     JsonArray modules = new JsonArray();
     for (JSModule module : getAllModules()) {
       JsonObject node = new JsonObject();
-      try {
         node.add("name", new JsonPrimitive(module.getName()));
         JsonArray deps = new JsonArray();
         node.add("dependencies", deps);
@@ -183,9 +178,6 @@ public final class JSModuleGraph {
               input.getSourceFile().getOriginalPath()));
         }
         modules.add(node);
-      } catch (JsonParseException e) {
-        Throwables.propagate(e);
-      }
     }
     return modules;
   }
@@ -338,18 +330,13 @@ public final class JSModuleGraph {
    *     Expressed as JS symbols.
    * @param inputs The original list of sources. Used to ensure that the sort
    *     is stable.
-   * @throws CircularDependencyException if there is a circular dependency
-   *     between the provides and requires.
    * @throws MissingProvideException if an entry point was not provided
    *     by any of the inputs.
    * @see DependencyOptions for more info on how this works.
    */
   public List<CompilerInput> manageDependencies(
-      List<String> entryPoints,
-      List<CompilerInput> inputs)
-      throws CircularDependencyException,
-          MissingModuleException,
-          MissingProvideException {
+      List<ModuleIdentifier> entryPoints, List<CompilerInput> inputs)
+      throws MissingModuleException, MissingProvideException {
     DependencyOptions depOptions = new DependencyOptions();
     depOptions.setDependencySorting(true);
     depOptions.setDependencyPruning(true);
@@ -364,21 +351,15 @@ public final class JSModuleGraph {
    *
    * @param inputs The original list of sources. Used to ensure that the sort
    *     is stable.
-   * @throws CircularDependencyException if there is a circular dependency
-   *     between the provides and requires.
    * @throws MissingProvideException if an entry point was not provided
    *     by any of the inputs.
    * @see DependencyOptions for more info on how this works.
    */
   public List<CompilerInput> manageDependencies(
       DependencyOptions depOptions,
-      List<CompilerInput> inputs)
-      throws CircularDependencyException, MissingProvideException,
-          MissingModuleException {
+      List<CompilerInput> inputs) throws MissingProvideException, MissingModuleException {
 
-    SortedDependencies<CompilerInput> sorter =
-        depOptions.isEs6ModuleOrder()
-            ? new Es6SortedDependencies<>(inputs) : new ClosureSortedDependencies<>(inputs);
+    SortedDependencies<CompilerInput> sorter = new Es6SortedDependencies<>(inputs);
 
     Iterable<CompilerInput> entryPointInputs = createEntryPointInputs(
         depOptions, inputs, sorter);
@@ -452,26 +433,27 @@ public final class JSModuleGraph {
         entryPointInputs.addAll(sorter.getInputsWithoutProvides());
       }
 
-      for (String entryPoint : depOptions.getEntryPoints()) {
-        // An entry point is either formatted as:
-        // 'foo.bar' - peg foo.bar to its current module
-        // 'modC:foo.bar' - peg foo.bar to modC
-        String inputName = entryPoint;
-        int splitPoint = entryPoint.indexOf(':');
+      for (ModuleIdentifier entryPoint : depOptions.getEntryPoints()) {
         CompilerInput entryPointInput = null;
-        if (splitPoint != -1) {
-          String moduleName = entryPoint.substring(0, splitPoint);
-          inputName = entryPoint.substring(
-              Math.min(splitPoint + 1, entryPoint.length() - 1));
-          JSModule module = modulesByName.get(moduleName);
-          if (module == null) {
-            throw new MissingModuleException(moduleName);
+        try {
+          if (entryPoint.getClosureNamespace().equals(entryPoint.getModuleName())) {
+            entryPointInput = sorter.maybeGetInputProviding(entryPoint.getClosureNamespace());
+            // Check to see if we can find the entry point as an ES6 and CommonJS module
+            // ES6 and CommonJS entry points may not provide any symbols
+            if (entryPointInput == null) {
+              entryPointInput = sorter.getInputProviding(entryPoint.getName());
+            }
           } else {
-            entryPointInput = sorter.getInputProviding(inputName);
-            entryPointInput.overrideModule(module);
+            JSModule module = modulesByName.get(entryPoint.getModuleName());
+            if (module == null) {
+              throw new MissingModuleException(entryPoint.getModuleName());
+            } else {
+              entryPointInput = sorter.getInputProviding(entryPoint.getClosureNamespace());
+              entryPointInput.overrideModule(module);
+            }
           }
-        } else {
-          entryPointInput = sorter.getInputProviding(inputName);
+        } catch (MissingProvideException e) {
+          throw new MissingProvideException(entryPoint.getName(), e);
         }
 
         entryPointInputs.add(entryPointInput);

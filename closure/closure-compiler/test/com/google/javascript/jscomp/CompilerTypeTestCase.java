@@ -19,22 +19,17 @@ package com.google.javascript.jscomp;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import com.google.common.base.Joiner;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.rhino.testing.BaseJSTypeTestCase;
 
 import java.util.Arrays;
 
+/**
+ * This class is mostly used by passes testing the old type checker.
+ * Passes that run after type checking and need type information use
+ * the class TypeICompilerTestCase.
+ */
 abstract class CompilerTypeTestCase extends BaseJSTypeTestCase {
-
-  static final String ACTIVE_X_OBJECT_DEF =
-      "/**\n" +
-      " * @param {string} progId\n" +
-      " * @param {string=} opt_location\n" +
-      " * @constructor\n" +
-      " * @see http://msdn.microsoft.com/en-us/library/7sw4ddf8.aspx\n" +
-      " */\n" +
-      "function ActiveXObject(progId, opt_location) {}\n";
 
   static final String CLOSURE_DEFS =
       "var goog = {};" +
@@ -65,73 +60,13 @@ abstract class CompilerTypeTestCase extends BaseJSTypeTestCase {
       "goog.asserts = {};" +
       "/** @return {*} */ goog.asserts.assert = function(x) { return x; };";
 
-  /** A default set of externs for testing structural interface matching*/
-  private static final Joiner lineJoiner = Joiner.on("\n");
-
   /** A default set of externs for testing. */
   static final String DEFAULT_EXTERNS =
-      lineJoiner.join(
-          "/**",
-          " * @interface",
-          " * @template KEY1, VALUE1",
-          " */",
-          "function IObject() {};",
-          "/**",
-          " * @interface",
-          " * @extends IObject<number, VALUE2>",
-          " * @template VALUE2",
-          " */",
-          "function IArrayLike() {};",
-          "/**",
-          " * @type{number}",
-          " */",
-          "IArrayLike.prototype.length;",
-          "/**",
-          " * @constructor",
-          " * @param {*=} opt_value",
-          " * @return {!Object}",
-          " */",
-          "function Object(opt_value) {}",
-          "Object.defineProperties = function(obj, descriptors) {};",
-          "/** @constructor",
-          " * @param {*} var_args */ ",
-          "function Function(var_args) {}",
-          "/** @type {!Function} */ Function.prototype.apply;",
-          "/** @type {!Function} */ Function.prototype.bind;",
-          "/** @type {!Function} */ Function.prototype.call;",
-          "/** @constructor",
-          " * @param {*=} arg",
-          " * @return {string} */",
-          "function String(arg) {}",
-          "/** @param {number} sliceArg */",
-          "String.prototype.slice = function(sliceArg) {};",
-          "/** @type {number} */ String.prototype.length;",
-          "/**",
-          " * @template T",
-          " * @constructor @implements {IArrayLike<T>}",
-          " * @param {*} var_args",
-          " * @return {!Array.<?>}",
-          " */",
-          "function Array(var_args) {}",
-          "/** @type {number} */ Array.prototype.length;",
-          "/**",
-          " * @param {...T} var_args",
-          " * @return {number} The new length of the array.",
-          " * @this {{length: number}|Array.<T>}",
-          " * @template T",
-          " * @modifies {this}",
-          " */",
-          "Array.prototype.push = function(var_args) {};",
-          "/** @constructor */",
-          "function Arguments() {}",
-          "/** @type {number} */",
-          "Arguments.prototype.length;",
-          "/** @type {?} */ var unknown;", // For producing unknowns in tests.
-          ACTIVE_X_OBJECT_DEF);
+      CompilerTestCase.DEFAULT_EXTERNS;
 
   protected Compiler compiler;
 
-  protected CompilerOptions getOptions() {
+  protected CompilerOptions getDefaultOptions() {
     CompilerOptions options = new CompilerOptions();
     options.setLanguageIn(LanguageMode.ECMASCRIPT5);
     options.setWarningLevel(
@@ -162,14 +97,19 @@ abstract class CompilerTypeTestCase extends BaseJSTypeTestCase {
       }
     }
     if (warnings.length > 0) {
-      fail("unexpected warnings(s):\n" + Joiner.on("\n").join(warnings));
+      fail("unexpected warnings(s):\n" + LINE_JOINER.join(warnings));
     }
   }
 
   @Override
-  protected void setUp() {
+  protected void setUp() throws Exception {
+    super.setUp();
+    initializeNewCompiler(getDefaultOptions());
+  }
+
+  protected void initializeNewCompiler(CompilerOptions options) {
     compiler = new Compiler();
-    compiler.initOptions(getOptions());
+    compiler.initOptions(options);
     registry = compiler.getTypeRegistry();
     initTypes();
   }

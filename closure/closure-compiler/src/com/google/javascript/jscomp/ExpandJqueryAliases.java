@@ -54,8 +54,12 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
           "argument must be an object literal or an array of strings " +
           "literal.");
 
-  static final DiagnosticType JQUERY_UNABLE_TO_EXPAND_INVALID_NAME_ERROR =
+  static final DiagnosticType JQUERY_UNABLE_TO_EXPAND_INVALID_NAME =
       DiagnosticType.error("JSC_JQUERY_UNABLE_TO_EXPAND_INVALID_NAME",
+          "jQuery.expandedEach expansion would result in an invalid property name.");
+
+  static final DiagnosticType JQUERY_UNABLE_TO_EXPAND_INVALID_NAME_WITH_NAME =
+      DiagnosticType.error("JSC_JQUERY_UNABLE_TO_EXPAND_INVALID_NAME_WITH_NAME",
           "jQuery.expandedEach expansion would result in the invalid " +
           "property name \"{0}\".");
 
@@ -80,12 +84,13 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
     // These passes should make the code easier to analyze.
     // Passes, such as StatementFusion, are omitted for this reason.
     final boolean late = false;
+    boolean useTypesForOptimization = compiler.getOptions().useTypesForOptimization;
     this.peepholePasses = new PeepholeOptimizationsPass(compiler,
-        new PeepholeMinimizeConditions(late),
+        new PeepholeMinimizeConditions(late, useTypesForOptimization),
         new PeepholeSubstituteAlternateSyntax(late),
         new PeepholeReplaceKnownMethods(late),
         new PeepholeRemoveDeadCode(),
-        new PeepholeFoldConstants(late),
+        new PeepholeFoldConstants(late, useTypesForOptimization),
         new PeepholeCollectPropertyAssignments());
   }
 
@@ -266,7 +271,7 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
 
       // remove any other pre-existing call arguments
       while (newCallTarget.getNext() != null) {
-        n.removeChildAfter(newCallTarget);
+        n.removeChild(newCallTarget.getNext());
       }
       n.addChildToBack(IR.thisNode().srcref(n));
     }
@@ -280,7 +285,7 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
    * property assignment with GETPROP nodes to allow for renaming.
    */
   private void maybeExpandJqueryEachCall(NodeTraversal t, Node n) {
-    Node objectToLoopOver = n.getChildAtIndex(1);
+    Node objectToLoopOver = n.getSecondChild();
 
     if (objectToLoopOver == null) {
       return;
@@ -293,12 +298,12 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
 
     // Run the peephole optimizations on the first argument to handle
     // cases like ("a " + "b").split(" ")
-    peepholePasses.process(null, n.getChildAtIndex(1));
+    peepholePasses.process(null, n.getSecondChild());
 
     // Create a reference tree
     Node nClone = n.cloneTree();
 
-    objectToLoopOver = nClone.getChildAtIndex(1);
+    objectToLoopOver = nClone.getSecondChild();
 
     // Check to see if the first argument is something we recognize and can
     // expand.
@@ -373,7 +378,7 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
       // Replace all of the key nodes with the prop name
       for (int j = 0; j < keyNodes.size(); j++) {
         if (key.isComputedProp()) {
-          t.report(key, JQUERY_UNABLE_TO_EXPAND_INVALID_NAME_ERROR);
+          t.report(key, JQUERY_UNABLE_TO_EXPAND_INVALID_NAME);
           return null;
         }
         Node origNode = keyNodes.get(j);
@@ -402,8 +407,8 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
           Node ancestorClone = ancestor.cloneTree();
           // Run the peephole passes to handle cases such as
           // obj['lit' + key] = val;
-          peepholePasses.process(null, ancestorClone.getChildAtIndex(1));
-          Node prop = ancestorClone.getChildAtIndex(1);
+          peepholePasses.process(null, ancestorClone.getSecondChild());
+          Node prop = ancestorClone.getSecondChild();
 
           if (prop.isString() &&
             NodeUtil.isValidPropertyName(LanguageMode.ECMASCRIPT3, prop.getString())) {
@@ -417,7 +422,7 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
             if (prop.isString() &&
                 !NodeUtil.isValidPropertyName(LanguageMode.ECMASCRIPT3, prop.getString())) {
               t.report(n,
-                  JQUERY_UNABLE_TO_EXPAND_INVALID_NAME_ERROR,
+                  JQUERY_UNABLE_TO_EXPAND_INVALID_NAME_WITH_NAME,
                   prop.getString());
             }
             isValidExpansion = false;
@@ -496,7 +501,7 @@ class ExpandJqueryAliases extends AbstractPostOrderCallback
 
       // remove any other pre-existing call arguments
       while (fnc.getNext() != null) {
-        n.removeChildAfter(fnc);
+        n.removeChild(fnc.getNext());
       }
     }
     compiler.reportCodeChange();

@@ -16,20 +16,13 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.javascript.rhino.Node;
-
 /**
  * @author johnlenz@google.com (John Lenz)
  */
 public final class MinimizeExitPointsTest extends CompilerTestCase {
   @Override
   protected CompilerPass getProcessor(final Compiler compiler) {
-    return new CompilerPass() {
-      @Override
-      public void process(Node externs, Node js) {
-        NodeTraversal.traverseEs6(compiler, js, new MinimizeExitPoints(compiler));
-      }
-    };
+    return new MinimizeExitPoints(compiler);
   }
 
   @Override
@@ -78,7 +71,12 @@ public final class MinimizeExitPointsTest extends CompilerTestCase {
          "f:g:{if(a()){}else{}}");
   }
 
-  public void testFunctionReturnOptimization() throws Exception {
+  public void testFunctionReturnOptimization1() throws Exception {
+    fold("function f(){return}",
+         "function f(){}");
+  }
+
+  public void testFunctionReturnOptimization2() throws Exception {
     fold("function f(){if(a()){b();if(c())return;}}",
          "function f(){if(a()){b();if(c());}}");
     fold("function f(){if(x)return; x=3; return; }",
@@ -214,6 +212,10 @@ public final class MinimizeExitPointsTest extends CompilerTestCase {
          "do { foo(); } while(false)");
     fold("do { foo(); break; } while(false)",
          "do { foo(); } while(false)");
+
+    fold("do{break}while(!new Date());", "do{}while(!new Date());");
+
+    foldSame("do { foo(); switch (x) { case 1: break; default: f()}; } while(false)");
   }
 
   public void testForContinueOptimization() throws Exception {
@@ -252,12 +254,12 @@ public final class MinimizeExitPointsTest extends CompilerTestCase {
 
     fold("for(x=0;x<y;x++){g:continue}",
          "for(x=0;x<y;x++){}");
-    // This case could be improved.
     fold("for(x=0;x<y;x++){g:if(a()){continue;}else{continue;} continue;}",
          "for(x=0;x<y;x++){g:if(a());else;}");
   }
 
   public void testCodeMotionDoesntBreakFunctionHoisting() throws Exception {
+    setAcceptedLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6);
     fold("function f() { if (x) return; foo(); function foo() {} }",
          "function f() { if (x); else { function foo() {} foo(); } }");
   }
@@ -274,5 +276,17 @@ public final class MinimizeExitPointsTest extends CompilerTestCase {
    */
   public void testDontFoldBreakInDoWhileIfConditionHasSideEffects() {
     foldSame("var b=true;do{break}while(b=false);");
+  }
+
+  public void testSwitchExitPoints1() {
+    fold(
+        "switch (x) { case 1: f(); break; }",
+        "switch (x) { case 1: f();        }");
+    fold(
+        "switch (x) { case 1: f(); break; case 2: g(); break; }",
+        "switch (x) { case 1: f(); break; case 2: g();        }");
+    fold(
+        "switch (x) { case 1: if (x) { f(); break; } break; default: g(); break; }",
+        "switch (x) { case 1: if (x) { f();        } break; default: g();        }");
   }
 }

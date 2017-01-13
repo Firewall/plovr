@@ -64,12 +64,19 @@ public class EnumElementType extends ObjectType {
 
   private final String name;
 
+  private final EnumType enumType;
+
   EnumElementType(JSTypeRegistry registry, JSType elementType,
-      String name) {
+      String name, EnumType enumType) {
     super(registry);
     this.primitiveType = elementType;
     this.primitiveObjectType = elementType.toObjectType();
     this.name = name;
+    this.enumType = enumType;
+  }
+
+  public EnumType getEnumType() {
+    return enumType;
   }
 
   @Override public PropertyMap getPropertyMap() {
@@ -161,16 +168,16 @@ public class EnumElementType extends ObjectType {
 
   @Override
   public boolean isSubtype(JSType that) {
-    return isSubtype(that, ImplCache.create());
+    return isSubtype(that, ImplCache.create(), SubtypingMode.NORMAL);
   }
 
   @Override
   protected boolean isSubtype(JSType that,
-      ImplCache implicitImplCache) {
-    if (JSType.isSubtypeHelper(this, that, implicitImplCache)) {
+      ImplCache implicitImplCache, SubtypingMode subtypingMode) {
+    if (JSType.isSubtypeHelper(this, that, implicitImplCache, subtypingMode)) {
       return true;
     } else {
-      return primitiveType.isSubtype(that, implicitImplCache);
+      return primitiveType.isSubtype(that, implicitImplCache, subtypingMode);
     }
   }
 
@@ -239,7 +246,7 @@ public class EnumElementType extends ObjectType {
     if (meetPrimitive.isEmptyType()) {
       return null;
     } else {
-      return new EnumElementType(registry, meetPrimitive, name);
+      return new EnumElementType(registry, meetPrimitive, name, getEnumType());
     }
   }
 

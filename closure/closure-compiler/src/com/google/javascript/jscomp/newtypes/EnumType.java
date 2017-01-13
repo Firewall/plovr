@@ -50,19 +50,19 @@ public final class EnumType extends Namespace implements TypeWithProperties {
   // All properties have the same type, so we only need a set, not a map.
   private ImmutableSet<String> props;
 
-  private EnumType(
-      String name, JSTypeExpression typeExpr, Collection<String> props) {
+  private EnumType(JSTypes commonTypes, String name,
+      JSTypeExpression typeExpr, Collection<String> props) {
+    super(commonTypes, name);
     Preconditions.checkNotNull(typeExpr);
     this.state = State.NOT_RESOLVED;
-    this.name = name;
     // typeExpr is non-null iff the enum is not resolved
     this.typeExpr = typeExpr;
     this.props = ImmutableSet.copyOf(props);
   }
 
-  public static EnumType make(
-      String name, JSTypeExpression typeExpr, Collection<String> props) {
-    return new EnumType(name, typeExpr, props);
+  public static EnumType make(JSTypes commonTypes, String name,
+      JSTypeExpression typeExpr, Collection<String> props) {
+    return new EnumType(commonTypes, name, typeExpr, props);
   }
 
   public boolean isResolved() {
@@ -114,15 +114,16 @@ public final class EnumType extends Namespace implements TypeWithProperties {
    * the properties of the object literal are constant.
    */
   @Override
-  protected JSType computeJSType(JSTypes commonTypes) {
-    Preconditions.checkState(enumPropType != null);
-    PersistentMap<String, Property> propMap = otherProps;
-    for (String s : props) {
+  protected JSType computeJSType() {
+    Preconditions.checkNotNull(enumPropType);
+    Preconditions.checkState(this.namespaceType == null);
+    PersistentMap<String, Property> propMap = PersistentMap.create();
+    for (String s : this.props) {
       propMap = propMap.with(s,
           Property.makeConstant(null, enumPropType, enumPropType));
     }
-    ObjectType obj = ObjectType.makeObjectType(null, propMap, null, false, ObjectKind.UNRESTRICTED);
-    return withNamedTypes(commonTypes, obj);
+    return JSType.fromObjectType(ObjectType.makeObjectType(
+        null, propMap, null, this, false, ObjectKind.UNRESTRICTED));
   }
 
   @Override
@@ -156,6 +157,15 @@ public final class EnumType extends Namespace implements TypeWithProperties {
     return props.contains(name);
   }
 
+  static boolean hasScalar(ImmutableSet<EnumType> enums) {
+    for (EnumType e : enums) {
+      if (e.declaredType.hasScalar()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   static boolean hasNonScalar(ImmutableSet<EnumType> enums) {
     for (EnumType e : enums) {
       if (e.declaredType.hasNonScalar()) {
@@ -181,7 +191,7 @@ public final class EnumType extends Namespace implements TypeWithProperties {
       ImmutableSet<EnumType> newEnums, JSType joinWithoutEnums) {
     boolean recreateEnums = false;
     for (EnumType e : newEnums) {
-      if (e.declaredType.isSubtypeOf(joinWithoutEnums)) {
+      if (e.declaredType.isSubtypeOf(joinWithoutEnums, SubtypeCache.create())) {
         recreateEnums = true;
         break;
       }
@@ -191,14 +201,14 @@ public final class EnumType extends Namespace implements TypeWithProperties {
     }
     ImmutableSet.Builder<EnumType> builder = ImmutableSet.builder();
     for (EnumType e : newEnums) {
-      if (!e.declaredType.isSubtypeOf(joinWithoutEnums)) {
+      if (!e.declaredType.isSubtypeOf(joinWithoutEnums, SubtypeCache.create())) {
         builder.add(e);
       }
     }
     return builder.build();
   }
 
-  static boolean areSubtypes(JSType t1, JSType t2) {
+  static boolean areSubtypes(JSType t1, JSType t2, SubtypeCache subSuperMap) {
     ImmutableSet<EnumType> s1 = t1.getEnums();
     if (s1 == null) {
       return true;
@@ -208,15 +218,10 @@ public final class EnumType extends Namespace implements TypeWithProperties {
       if (s2 != null && s2.contains(e)) {
         continue;
       }
-      if (!e.declaredType.isSubtypeOf(t2)) {
+      if (!e.declaredType.isSubtypeOf(t2, subSuperMap)) {
         return false;
       }
     }
     return true;
-  }
-
-  @Override
-  public String toString() {
-    return name;
   }
 }

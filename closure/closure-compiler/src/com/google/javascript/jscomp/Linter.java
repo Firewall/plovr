@@ -15,12 +15,19 @@
  */
 package com.google.javascript.jscomp;
 
+import static com.google.common.collect.ObjectArrays.concat;
+
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.refactoring.ApplySuggestedFixes;
+import com.google.javascript.refactoring.ErrorToFixMapper;
+import com.google.javascript.refactoring.SuggestedFix;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Minimal binary that just runs the "lint" checks which can be run on a single file at a time.
@@ -30,24 +37,55 @@ import java.nio.file.Paths;
 public class Linter {
   public static void main(String[] args) throws IOException {
     for (String filename : args) {
+      // TODO(tbreisacher): Add a command line flag that causes this
+      // to call fix() instead of lint().
       lint(filename);
     }
   }
 
-  private static void lint(String filename) throws IOException {
-    lint(Paths.get(filename));
+
+  static void lint(String filename) throws IOException {
+    lint(Paths.get(filename), false);
   }
 
-  private static void lint(Path path) throws IOException {
+  static void fix(String filename) throws IOException {
+    lint(Paths.get(filename), true);
+  }
+
+  private static void lint(Path path, boolean fix) throws IOException {
     SourceFile file = SourceFile.fromFile(path.toString());
-    Compiler compiler = new Compiler();
+    Compiler compiler = new Compiler(System.out);
     CompilerOptions options = new CompilerOptions();
-    options.setLanguageIn(LanguageMode.ECMASCRIPT6);
+    options.setLanguage(LanguageMode.ECMASCRIPT6_STRICT);
+
+    // For a full compile, this would cause a crash, as the method name implies. But the passes
+    // in LintPassConfig can all handle untranspiled ES6.
+    options.setSkipTranspilationAndCrash(true);
+
+    options.setPreserveDetailedSourceInfo(true);
     options.setCodingConvention(new GoogleCodingConvention());
-    options.setWarningLevel(DiagnosticGroups.MISSING_REQUIRE, CheckLevel.WARNING);
+
+    // Even though we're not running the typechecker, enable the checkTypes DiagnosticGroup, since
+    // it contains some warnings we do want to report, such as JSDoc parse warnings.
+    options.setWarningLevel(DiagnosticGroups.CHECK_TYPES, CheckLevel.WARNING);
+
+    options.setWarningLevel(DiagnosticGroups.LINT_CHECKS, CheckLevel.WARNING);
+    options.setWarningLevel(DiagnosticGroups.STRICT_MISSING_REQUIRE, CheckLevel.WARNING);
     options.setWarningLevel(DiagnosticGroups.EXTRA_REQUIRE, CheckLevel.WARNING);
+    options.setWarningLevel(DiagnosticGroups.USE_OF_GOOG_BASE, CheckLevel.WARNING);
     compiler.setPassConfig(new LintPassConfig(options));
     compiler.disableThreads();
-    compiler.compile(ImmutableList.<SourceFile>of(), ImmutableList.of(file), options);
+    SourceFile externs = SourceFile.fromCode("<Linter externs>", "");
+    compiler.compile(ImmutableList.<SourceFile>of(externs), ImmutableList.of(file), options);
+    if (fix) {
+      List<SuggestedFix> fixes = new ArrayList<>();
+      for (JSError warning : concat(compiler.getErrors(), compiler.getWarnings(), JSError.class)) {
+        SuggestedFix suggestedFix = ErrorToFixMapper.getFixForJsError(warning, compiler);
+        if (suggestedFix != null) {
+          fixes.add(suggestedFix);
+        }
+      }
+      ApplySuggestedFixes.applySuggestedFixesToFiles(fixes);
+    }
   }
 }

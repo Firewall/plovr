@@ -19,7 +19,6 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 
 /**
  * A pass that looks for assignments to properties of an object or array
@@ -28,6 +27,7 @@ import com.google.javascript.rhino.Token;
  * E.g. {@code var a = [];a[0] = 0} is optimized to {@code var a = [0]} and
  * similarly for the object constructor.
  *
+ * @author msamuel@google.com (Mike Samuel)
  */
 final class PeepholeCollectPropertyAssignments extends AbstractPeepholeOptimization {
 
@@ -84,14 +84,14 @@ final class PeepholeCollectPropertyAssignments extends AbstractPeepholeOptimizat
     if (n.isVar()) {
       return n.getFirstChild();
     } else if (NodeUtil.isExprAssign(n)) {
-      return n.getFirstChild().getFirstChild();
+      return n.getFirstFirstChild();
     }
     throw new IllegalStateException();
   }
 
   private static Node getValue(Node n) {
     if (n.isVar()) {
-      return n.getFirstChild().getFirstChild();
+      return n.getFirstFirstChild();
     } else if (NodeUtil.isExprAssign(n)) {
       return n.getFirstChild().getLastChild();
     }
@@ -128,7 +128,7 @@ final class PeepholeCollectPropertyAssignments extends AbstractPeepholeOptimizat
       return false;
     }
 
-    Node lhs = propertyCandidate.getFirstChild().getFirstChild();
+    Node lhs = propertyCandidate.getFirstFirstChild();
     // Must be an assignment to the recent variable...
     if (!name.equals(lhs.getFirstChild().getString())) {
       return false;
@@ -147,12 +147,12 @@ final class PeepholeCollectPropertyAssignments extends AbstractPeepholeOptimizat
     }
 
     switch (value.getType()) {
-      case Token.ARRAYLIT:
+      case ARRAYLIT:
         if (!collectArrayProperty(value, propertyCandidate)) {
           return false;
         }
         break;
-      case Token.OBJECTLIT:
+      case OBJECTLIT:
         if (!collectObjectProperty(value, propertyCandidate)) {
           return false;
         }

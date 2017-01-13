@@ -32,7 +32,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Tests for TypeValidator.
+ * Type-checking tests that can use methods from CompilerTestCase
+ *
  * @author nicksantos@google.com (Nick Santos)
  */
 public final class TypeValidatorTest extends CompilerTestCase {
@@ -105,22 +106,55 @@ public final class TypeValidatorTest extends CompilerTestCase {
             fromNatives(STRING_TYPE, BOOLEAN_TYPE)));
   }
 
+  public void testFunctionMismatchMediumLengthTypes() throws Exception {
+    testSame("",
+        LINE_JOINER.join(
+            "/**",
+            " * @param {{a: string, b: string, c: string, d: string, e: string}} x",
+            " */",
+            "function f(x) {}",
+            "var y = {a:'',b:'',c:'',d:'',e:0};",
+            "f(y);"),
+        TYPE_MISMATCH_WARNING,
+        LINE_JOINER.join(
+            "actual parameter 1 of f does not match formal parameter",
+            "found   : {",
+            "  a: string,",
+            "  b: string,",
+            "  c: string,",
+            "  d: string,",
+            "  e: (number|string)",
+            "}",
+            "required: {",
+            "  a: string,",
+            "  b: string,",
+            "  c: string,",
+            "  d: string,",
+            "  e: string",
+            "}"));
+  }
+
   /**
    * Make sure the 'found' and 'required' strings are not identical when there is a mismatch.
    * See https://code.google.com/p/closure-compiler/issues/detail?id=719.
    */
   public void testFunctionMismatchLongTypes() throws Exception {
     testSame("",
-        "/**\n" +
-        " * @param {{a: string, b: string, c: string, d: string, e: string}} x\n" +
-        " */\n" +
-        "function f(x) {}\n" +
-        "var y = {a:'',b:'',c:'',d:'',e:0};" +
-        "f(y);",
+        LINE_JOINER.join(
+            "/**",
+            " * @param {{a: string, b: string, c: string, d: string, e: string,",
+            " *          f: string, g: string, h: string, i: string, j: string, k: string}} x",
+            " */",
+            "function f(x) {}",
+            "var y = {a:'',b:'',c:'',d:'',e:'',f:'',g:'',h:'',i:'',j:'',k:0};",
+            "f(y);"),
         TYPE_MISMATCH_WARNING,
-        "actual parameter 1 of f does not match formal parameter\n" +
-        "found   : {a: string, b: string, c: string, d: string, e: (number|string)}\n" +
-        "required: {a: string, b: string, c: string, d: string, e: string}");
+        LINE_JOINER.join(
+            "actual parameter 1 of f does not match formal parameter",
+            "found   : {a: string, b: string, c: string, d: string, e: string, f: string,"
+              + " g: string, h: string, i: string, j: string, k: (number|string)}",
+            "required: {a: string, b: string, c: string, d: string, e: string, f: string,"
+              + " g: string, h: string, i: string, j: string, k: string}"));
   }
 
   /**
@@ -128,20 +162,25 @@ public final class TypeValidatorTest extends CompilerTestCase {
    */
   public void testFunctionMismatchTypedef() throws Exception {
     testSame("",
-        "/**\n" +
-        " * @typedef {{a: string, b: string, c: string, d: string, e: string}}\n" +
-        " */\n" +
-        "var t;\n" +
-        "/**\n" +
-        " * @param {t} x\n" +
-        " */\n" +
-        "function f(x) {}\n" +
-        "var y = {a:'',b:'',c:'',d:'',e:0};" +
-        "f(y);",
+        LINE_JOINER.join(
+            "/**",
+            " * @typedef {{a: string, b: string, c: string, d: string, e: string,",
+            " *            f: string, g: string, h: string, i: string, j: string, k: string}} x",
+            " */",
+            "var t;",
+            "/**",
+            " * @param {t} x",
+            " */",
+            "function f(x) {}",
+            "var y = {a:'',b:'',c:'',d:'',e:'',f:'',g:'',h:'',i:'',j:'',k:0};",
+            "f(y);"),
         TYPE_MISMATCH_WARNING,
-        "actual parameter 1 of f does not match formal parameter\n" +
-        "found   : {a: string, b: string, c: string, d: string, e: (number|string)}\n" +
-        "required: {a: string, b: string, c: string, d: string, e: string}");
+        LINE_JOINER.join(
+            "actual parameter 1 of f does not match formal parameter",
+            "found   : {a: string, b: string, c: string, d: string, e: string, f: string,"
+              + " g: string, h: string, i: string, j: string, k: (number|string)}",
+            "required: {a: string, b: string, c: string, d: string, e: string, f: string,"
+              + " g: string, h: string, i: string, j: string, k: string}"));
   }
 
   public void testNullUndefined() {
@@ -163,6 +202,157 @@ public final class TypeValidatorTest extends CompilerTestCase {
              "f(/** @type {Super} */ (new Sub));",
              TYPE_MISMATCH_WARNING);
     assertMismatches(Collections.<TypeMismatch>emptyList());
+  }
+
+  public void testModuloNullUndef1() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "function f(/** number */ to, /** (number|null) */ from) {",
+                "  to = from;",
+                "}"))));
+  }
+
+  public void testModuloNullUndef2() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "function f(/** number */ to, /** (number|undefined) */ from) {",
+                "  to = from;",
+                "}"))));
+  }
+
+  public void testModuloNullUndef3() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "/** @constructor */",
+                "function Foo() {}",
+                "function f(/** !Foo */ to, /** ?Foo */ from) {",
+                "  to = from;",
+                "}"))));
+  }
+
+  public void testModuloNullUndef4() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "/** @constructor */",
+                "function Foo() {}",
+                "/** @constructor @extends {Foo} */",
+                "function Bar() {}",
+                "function f(/** !Foo */ to, /** ?Bar */ from) {",
+                "  to = from;",
+                "}"))));
+  }
+
+  public void testModuloNullUndef5() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "function f(/** {a: number} */ to, /** {a: (null|number)} */ from) {",
+                "  to = from;",
+                "}"))));
+  }
+
+  public void testModuloNullUndef6() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "function f(/** {a: number} */ to, /** ?{a: (null|number)} */ from) {",
+                "  to = from;",
+                "}"))));
+  }
+
+  public void testModuloNullUndef7() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "/** @constructor */",
+                "function Foo() {}",
+                "function f(/** function():!Foo */ to, /** function():?Foo */ from) {",
+                "  to = from;",
+                "}"))));
+  }
+
+  public void testModuloNullUndef8() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "/**",
+                " * @constructor",
+                " * @template T",
+                " */",
+                "function Foo() {}",
+                "function f(/** !Foo<number> */ to, /** !Foo<(number|null)> */ from) {",
+                "  to = from;",
+                "}"))));
+  }
+
+  public void testModuloNullUndef9() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "/** @interface */",
+                "function Foo() {}",
+                "/** @type {function(?number)} */",
+                "Foo.prototype.prop;",
+                "/** @constructor @implements {Foo} */",
+                "function Bar() {}",
+                "/** @type {function(number)} */",
+                "Bar.prototype.prop;"))));
+  }
+
+  public void testModuloNullUndef10() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "/** @constructor */",
+                "function Bar() {}",
+                "/** @type {!number} */",
+                "Bar.prototype.prop;",
+                "function f(/** ?number*/ n) {",
+                "  (new Bar).prop = n;",
+                "}"))));
+  }
+
+  public void testModuloNullUndef11() {
+    testSame(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "function f(/** number */ n) {}",
+                "f(/** @type {?number} */ (null));"))));
+  }
+
+  public void testModuloNullUndef12() {
+    // Only warn for the file not ending in .java.js
+    test(ImmutableList.of(
+        SourceFile.fromCode(
+            "foo.js",
+            LINE_JOINER.join(
+                "function f(/** number */ to, /** (number|null) */ from) {",
+                "  to = from;",
+                "}")),
+        SourceFile.fromCode(
+            "foo.java.js",
+            LINE_JOINER.join(
+                "function g(/** number */ to, /** (number|null) */ from) {",
+                "  to = from;",
+                "}"))),
+        null,
+        null,
+        TypeValidator.TYPE_MISMATCH_WARNING);
   }
 
   private TypeMismatch fromNatives(JSTypeNative a, JSTypeNative b) {

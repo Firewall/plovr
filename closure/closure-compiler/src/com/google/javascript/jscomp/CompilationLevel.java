@@ -157,7 +157,6 @@ public enum CompilationLevel {
     options.setInlineConstantVars(true);
     options.setInlineFunctions(Reach.ALL);
     options.setAssumeClosuresOnlyCaptureReferences(false);
-    options.setInlineGetters(true);
     options.setInlineVariables(Reach.ALL);
     options.setFlowSensitiveInlineVariables(true);
     options.setComputeFunctionSideEffects(true);
@@ -177,20 +176,46 @@ public enum CompilationLevel {
   }
 
   /**
-   * Enable additional optimizations that use type information.
+   * Enable additional optimizations that use type information. Only has
+   * an effect for ADVANCED_OPTIMIZATIONS; this is a no-op for other modes.
    * @param options The CompilerOptions object to set the options on.
    */
   public void setTypeBasedOptimizationOptions(CompilerOptions options) {
     switch (this) {
       case ADVANCED_OPTIMIZATIONS:
         options.inferTypes = true;
-        options.disambiguateProperties = true;
-        options.ambiguateProperties = true;
-        options.inlineProperties = true;
+        options.setDisambiguateProperties(true);
+        options.setAmbiguateProperties(true);
+        options.setInlineProperties(true);
+        options.setUseTypesForOptimization(true);
         break;
       case SIMPLE_OPTIMIZATIONS:
-        // TODO(johnlenz): enable peephole type based optimization.
+      case WHITESPACE_ONLY:
         break;
+    }
+  }
+
+  /**
+   * Enable additional optimizations that operate on global declarations. Advanced mode does
+   * this by default, but this isn't valid in simple mode in the general case and should only
+   * be enabled when code is self contained (such as when it is enclosed by a function wrapper.
+   *
+   * @param options The CompilerOptions object to set the options on.
+   */
+  public void setWrappedOutputOptimizations(CompilerOptions options) {
+    // Global variables and properties names can't conflict.
+    options.reserveRawExports = false;
+    switch (this) {
+      case SIMPLE_OPTIMIZATIONS:
+        // Enable global variable optimizations (but not property optimizations)
+        options.setVariableRenaming(VariableRenamingPolicy.ALL);
+        options.setCollapseAnonymousFunctions(true);
+        options.setInlineConstantVars(true);
+        options.setInlineFunctions(Reach.ALL);
+        options.setInlineVariables(Reach.ALL);
+        options.setRemoveUnusedVariables(Reach.ALL);
+        break;
+      case ADVANCED_OPTIMIZATIONS:
       case WHITESPACE_ONLY:
         break;
     }

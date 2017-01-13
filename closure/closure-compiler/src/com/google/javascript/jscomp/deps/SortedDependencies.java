@@ -26,6 +26,9 @@ import java.util.List;
  * <p>
  * Also exposes other information about the inputs, like which inputs
  * do not provide symbols.
+ *
+ * TODO(tbreisacher): Consider removing this interface, since it now
+ * has only one class implementing it.
  */
 public interface SortedDependencies<INPUT extends DependencyInfo> {
 
@@ -64,15 +67,13 @@ public interface SortedDependencies<INPUT extends DependencyInfo> {
 
   public List<INPUT> getInputsWithoutProvides();
 
-  public static class CircularDependencyException extends Exception {
-    CircularDependencyException(String message) {
-      super(message);
-    }
-  }
-
   public static class MissingProvideException extends Exception {
-    MissingProvideException(String provide) {
+    public MissingProvideException(String provide) {
       super(provide);
+    }
+
+    public MissingProvideException(String provide, Exception e) {
+      super(provide, e);
     }
   }
 }

@@ -45,7 +45,6 @@ import static com.google.javascript.rhino.jstype.JSTypeNative.U2U_CONSTRUCTOR_TY
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import java.util.HashSet;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.FunctionTypeI;
 import com.google.javascript.rhino.Node;
@@ -54,6 +53,7 @@ import com.google.javascript.rhino.TypeI;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -333,6 +333,7 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
     return Integer.MAX_VALUE;
   }
 
+  @Override
   public JSType getReturnType() {
     return call.returnType;
   }
@@ -592,7 +593,8 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
       }
       this.implementedInterfaces = ImmutableList.copyOf(implementedInterfaces);
     } else {
-      throw new UnsupportedOperationException();
+      throw new UnsupportedOperationException(
+          "An interface cannot implement other inferfaces");
     }
   }
 
@@ -945,16 +947,7 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
     }
     if (isInterface()) {
       if (that.isInterface()) {
-        if (getReferenceName().equals(that.getReferenceName())) {
-          return true;
-        } else {
-          if (this.isStructuralInterface()
-              && that.isStructuralInterface()) {
-            return checkStructuralInterfaceEquivalenceHelper(
-                that, eqMethod, eqCache);
-          }
-          return false;
-        }
+        return getReferenceName().equals(that.getReferenceName());
       }
       return false;
     }
@@ -964,43 +957,6 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
 
     return typeOfThis.checkEquivalenceHelper(that.typeOfThis, eqMethod, eqCache) &&
         call.checkArrowEquivalenceHelper(that.call, eqMethod, eqCache);
-  }
-
-  boolean checkStructuralInterfaceEquivalenceHelper(
-      final JSType that, EquivalenceMethod eqMethod, EqCache eqCache) {
-    Preconditions.checkState(eqCache.isStructuralTyping());
-    Preconditions.checkState(this.isStructuralInterface());
-    Preconditions.checkState(that.isRecordType() || that.isFunctionType());
-
-    MatchStatus result = eqCache.checkCache(this, that);
-    if (result != null) {
-      return result.subtypeValue();
-    }
-
-    if (this.hasAnyTemplateTypes() || that.hasAnyTemplateTypes()) {
-      return false;
-    }
-    Map<String, JSType> thisPropList = getPropertyTypeMap(this);
-    Map<String, JSType> thatPropList = that.isRecordType()
-        ? that.toMaybeRecordType().getOwnPropertyTypeMap()
-        : getPropertyTypeMap(that.toMaybeFunctionType());
-
-    if (thisPropList.size() != thatPropList.size()) {
-      eqCache.updateCache(this, that, MatchStatus.NOT_MATCH);
-      return false;
-    }
-    for (String propName : thisPropList.keySet()) {
-      JSType typeInInterface = thisPropList.get(propName);
-      JSType typeInFunction = thatPropList.get(propName);
-      if (typeInFunction == null
-          || !typeInFunction.checkEquivalenceHelper(
-              typeInInterface, eqMethod, eqCache)) {
-        eqCache.updateCache(this, that, MatchStatus.NOT_MATCH);
-        return false;
-      }
-    }
-    eqCache.updateCache(this, that, MatchStatus.MATCH);
-    return true;
   }
 
   @Override
@@ -1102,13 +1058,13 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
    */
   @Override
   public boolean isSubtype(JSType that) {
-    return isSubtype(that, ImplCache.create());
+    return isSubtype(that, ImplCache.create(), SubtypingMode.NORMAL);
   }
 
   @Override
   protected boolean isSubtype(JSType that,
-      ImplCache implicitImplCache) {
-    if (JSType.isSubtypeHelper(this, that, implicitImplCache)) {
+      ImplCache implicitImplCache, SubtypingMode subtypingMode) {
+    if (JSType.isSubtypeHelper(this, that, implicitImplCache, subtypingMode)) {
       return true;
     }
 
@@ -1124,14 +1080,14 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
       }
 
       return treatThisTypesAsCovariant(other, implicitImplCache)
-          && this.call.isSubtype(other.call, implicitImplCache);
+          && this.call.isSubtype(other.call, implicitImplCache, subtypingMode);
     }
 
     return getNativeType(JSTypeNative.FUNCTION_PROTOTYPE)
-        .isSubtype(that, implicitImplCache);
+        .isSubtype(that, implicitImplCache, subtypingMode);
   }
 
-  protected boolean treatThisTypesAsCovariant(FunctionType other,
+  private boolean treatThisTypesAsCovariant(FunctionType other,
       ImplCache implicitImplCache) {
     // If functionA is a subtype of functionB, then their "this" types
     // should be contravariant. However, this causes problems because
@@ -1150,8 +1106,8 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
 
       // If one of the 'this' types is covariant of the other,
       // then we'll treat them as covariant (see comment above).
-      other.typeOfThis.isSubtype(this.typeOfThis, implicitImplCache) ||
-      this.typeOfThis.isSubtype(other.typeOfThis, implicitImplCache);
+      other.typeOfThis.isSubtype(this.typeOfThis, implicitImplCache, SubtypingMode.NORMAL)
+      || this.typeOfThis.isSubtype(other.typeOfThis, implicitImplCache, SubtypingMode.NORMAL);
     return treatThisTypesAsCovariant;
   }
 
@@ -1437,11 +1393,6 @@ public class FunctionType extends PrototypeObjectType implements FunctionTypeI {
   @Override
   public boolean isStructuralInterface() {
     return isInterface() && isStructuralInterface;
-  }
-
-  @Override
-  public boolean isStructuralType() {
-    return isStructuralInterface();
   }
 
   /**

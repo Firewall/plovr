@@ -20,7 +20,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.javascript.jscomp.NodeTraversal.ScopedCallback;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -86,7 +85,7 @@ final class RenameLabels implements CompilerPass {
   }
 
   static class DefaultNameSupplier implements Supplier<String> {
-    // NameGenerator is used to create safe label names.
+    // DefaultNameGenerator is used to create safe label names.
     private final NameGenerator nameGenerator;
 
     private DefaultNameSupplier(final NameGenerator nameGen) {
@@ -94,7 +93,8 @@ final class RenameLabels implements CompilerPass {
     }
 
     private DefaultNameSupplier() {
-      this.nameGenerator = new NameGenerator(new HashSet<String>(), "", null);
+      this.nameGenerator = new DefaultNameGenerator(
+          new HashSet<String>(), "", null);
     }
 
     @Override
@@ -178,12 +178,12 @@ final class RenameLabels implements CompilerPass {
     @Override
     public void visit(NodeTraversal nodeTraversal, Node node, Node parent) {
       switch (node.getType()) {
-        case Token.LABEL:
+        case LABEL:
           visitLabel(node, parent);
           break;
 
-        case Token.BREAK:
-        case Token.CONTINUE:
+        case BREAK:
+        case CONTINUE:
           visitBreakOrContinue(node);
           break;
       }

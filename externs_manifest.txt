@@ -18,6 +18,7 @@ browser/iphone.js
 browser/mediasource.js
 browser/page_visibility.js
 browser/streamsapi.js
+browser/url.js
 browser/v8.js
 browser/w3c_anim_timing.js
 browser/w3c_audio.js
@@ -28,14 +29,16 @@ browser/w3c_device_sensor_event.js
 browser/w3c_dom1.js
 browser/w3c_dom2.js
 browser/w3c_dom3.js
+browser/w3c_dom4.js
 browser/w3c_elementtraversal.js
-browser/w3c_encoding.js
 browser/w3c_event.js
 browser/w3c_event3.js
 browser/w3c_geolocation.js
 browser/w3c_indexeddb.js
 browser/w3c_navigation_timing.js
+browser/w3c_permissions.js
 browser/w3c_range.js
+browser/w3c_requestidlecallback.js
 browser/w3c_rtc.js
 browser/w3c_selectors.js
 browser/w3c_serviceworker.js
@@ -47,7 +50,9 @@ browser/webkit_css.js
 browser/webkit_dom.js
 browser/webkit_event.js
 browser/webkit_notifications.js
+browser/webkit_usercontent.js
 browser/webstorage.js
+browser/whatwg_encoding.js
 browser/window.js
 es3.js
 es5.js

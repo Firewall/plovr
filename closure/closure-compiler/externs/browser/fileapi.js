@@ -50,30 +50,33 @@ Blob.prototype.type;
  * @see http://www.w3.org/TR/FileAPI/#dfn-slice
  * @param {number} start
  * @param {number} length
+ * @param {string=} opt_contentType
  * @return {!Blob}
  * @nosideeffects
  */
-Blob.prototype.slice = function(start, length) {};
+Blob.prototype.slice = function(start, length, opt_contentType) {};
 
 /**
  * This replaces Blob.slice in Chrome since WebKit revision 84005.
  * @see http://lists.w3.org/Archives/Public/public-webapps/2011AprJun/0222.html
  * @param {number} start
  * @param {number} end
+ * @param {string=} opt_contentType
  * @return {!Blob}
  * @nosideeffects
  */
-Blob.prototype.webkitSlice = function(start, end) {};
+Blob.prototype.webkitSlice = function(start, end, opt_contentType) {};
 
 /**
  * This replaces Blob.slice in Firefox.
  * @see http://lists.w3.org/Archives/Public/public-webapps/2011AprJun/0222.html
  * @param {number} start
  * @param {number} end
+ * @param {string=} opt_contentType
  * @return {!Blob}
  * @nosideeffects
  */
-Blob.prototype.mozSlice = function(start, end) {};
+Blob.prototype.mozSlice = function(start, end, opt_contentType) {};
 
 /**
  * @see http://www.w3.org/TR/file-writer-api/#the-blobbuilder-interface
@@ -507,17 +510,26 @@ FileReader.prototype.abort = function() {};
  */
 FileReader.prototype.EMPTY = 0;
 
+/** @type {number} */
+FileReader.EMPTY = 0;
+
 /**
  * @see http://www.w3.org/TR/FileAPI/#dfn-loading
  * @type {number}
  */
 FileReader.prototype.LOADING = 1;
 
+/** @type {number} */
+FileReader.LOADING = 1;
+
 /**
  * @see http://www.w3.org/TR/FileAPI/#dfn-done
  * @type {number}
  */
 FileReader.prototype.DONE = 2;
+
+/** @type {number} */
+FileReader.DONE = 2;
 
 /**
  * @see http://www.w3.org/TR/FileAPI/#dfn-readystate
@@ -851,42 +863,10 @@ function revokeObjectURL(url) {};
 Window.prototype.revokeObjectURL = function(url) {};
 
 /**
- * @see http://www.w3.org/TR/FileAPI/#URL-object
- * @constructor
- */
-function DOMURL() {}
-
-/**
- * @see http://www.w3.org/TR/FileAPI/#
- * @constructor
- * @param {string} urlString
- * @param {string=} opt_base
- * @extends {DOMURL}
- */
-function URL(urlString, opt_base) {}
-
-/** @type {string} */
-URL.prototype.protocol;
-
-/**
- * @see http://www.w3.org/TR/FileAPI/#dfn-createObjectURL
- * @param {!File|!Blob|!MediaSource|!MediaStream} obj
- * @return {string}
- */
-URL.createObjectURL = function(obj) {};
-
-/**
- * @see http://www.w3.org/TR/FileAPI/#dfn-revokeObjectURL
- * @param {string} url
- */
-URL.revokeObjectURL = function(url) {};
-
-/**
  * This has been replaced by URL in Chrome since WebKit revision 75739.
  * @constructor
  * @param {string} urlString
  * @param {string=} opt_base
- * @extends {DOMURL}
  */
 function webkitURL(urlString, opt_base) {}
 

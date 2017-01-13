@@ -1534,13 +1534,13 @@ jQuery.noConflict = function(removeAll) {};
 $.noConflict = function(removeAll) {};
 
 /**
- * @return {function()}
+ * @return {undefined}
  * @nosideeffects
  */
 jQuery.noop = function() {};
 
 /**
- * @return {function()}
+ * @return {undefined}
  * @nosideeffects
  */
 $.noop = function() {};
@@ -1603,11 +1603,11 @@ jQuery.prototype.on = function(arg1, selector, data, handler) {};
 jQuery.prototype.one = function(arg1, arg2, arg3, handler) {};
 
 /**
- * @param {boolean=} includeMargin
- * @return {number}
+ * @param {number|boolean=} arg1
+ * @return {number|!jQuery}
  * @nosideeffects
  */
-jQuery.prototype.outerHeight = function(includeMargin) {};
+jQuery.prototype.outerHeight = function(arg1) {};
 
 /**
  * @param {boolean=} includeMargin

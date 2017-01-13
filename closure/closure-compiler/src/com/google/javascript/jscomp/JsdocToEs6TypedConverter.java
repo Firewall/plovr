@@ -35,6 +35,7 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
+import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
@@ -71,13 +72,13 @@ public final class JsdocToEs6TypedConverter
   public void visit(NodeTraversal t, Node n, Node parent) {
     JSDocInfo bestJSDocInfo = NodeUtil.getBestJSDocInfo(n);
     switch (n.getType()) {
-      case Token.FUNCTION:
+      case FUNCTION:
         if (bestJSDocInfo != null) {
           setTypeExpression(n, bestJSDocInfo.getReturnType());
         }
         break;
-      case Token.NAME:
-      case Token.GETPROP:
+      case NAME:
+      case GETPROP:
         if (parent == null) {
           break;
         }
@@ -86,7 +87,7 @@ public final class JsdocToEs6TypedConverter
             setTypeExpression(n, bestJSDocInfo.getType());
           }
         } else if (parent.isParamList()) {
-          JSDocInfo parentDocInfo = NodeUtil.getBestJSDocInfo(parent);
+          JSDocInfo parentDocInfo = NodeUtil.getBestJSDocInfo(parent.getParent());
           if (parentDocInfo == null) {
             break;
           }
@@ -97,7 +98,7 @@ public final class JsdocToEs6TypedConverter
             // Modify the primary AST to represent a function parameter as a
             // REST node, if the type indicates it is a rest parameter.
             if (parameterType.getRoot().getType() == Token.ELLIPSIS) {
-              attachTypeExpr = Node.newString(Token.REST, n.getString());
+              attachTypeExpr = IR.rest(n.getString());
               n.getParent().replaceChild(n, attachTypeExpr);
               compiler.reportCodeChange();
             }
@@ -155,17 +156,17 @@ public final class JsdocToEs6TypedConverter
     // representation directly, and delete this function.
     @Nullable
     public static TypeDeclarationNode convertTypeNodeAST(Node n) {
-      int token = n.getType();
+      Token token = n.getType();
       switch (token) {
-        case Token.STAR:
-        case Token.EMPTY: // for function types that don't declare a return type
+        case STAR:
+        case EMPTY: // for function types that don't declare a return type
           return anyType();
-        case Token.VOID:
+        case VOID:
           return undefinedType();
-        case Token.BANG:
+        case BANG:
           // TODO(alexeagle): non-nullable is assumed to be the default
           return convertTypeNodeAST(n.getFirstChild());
-        case Token.STRING:
+        case STRING:
           String typeName = n.getString();
           switch (typeName) {
             case "boolean":
@@ -192,7 +193,7 @@ public final class JsdocToEs6TypedConverter
               }
               return root;
           }
-        case Token.QMARK:
+        case QMARK:
           Node child = n.getFirstChild();
           return child == null
               ? anyType()
@@ -200,7 +201,7 @@ public final class JsdocToEs6TypedConverter
               // so we drop it before building the tree.
               // : nullable(convertTypeNodeAST(child));
               : convertTypeNodeAST(child);
-        case Token.LC:
+        case LC:
           LinkedHashMap<String, TypeDeclarationNode> properties = new LinkedHashMap<>();
           for (Node field : n.getFirstChild().children()) {
             boolean isFieldTypeDeclared = field.getType() == Token.COLON;
@@ -214,9 +215,9 @@ public final class JsdocToEs6TypedConverter
             properties.put(fieldName, fieldType);
           }
           return recordType(properties);
-        case Token.ELLIPSIS:
+        case ELLIPSIS:
           return arrayType(convertTypeNodeAST(n.getFirstChild()));
-        case Token.PIPE:
+        case PIPE:
           ImmutableList<TypeDeclarationNode> types = FluentIterable
               .from(n.children()).transform(CONVERT_TYPE_NODE)
               .filter(Predicates.notNull()).toList();
@@ -228,7 +229,7 @@ public final class JsdocToEs6TypedConverter
             default:
               return unionType(types);
           }
-        case Token.FUNCTION:
+        case FUNCTION:
           Node returnType = anyType();
           LinkedHashMap<String, TypeDeclarationNode> requiredParams = new LinkedHashMap<>();
           LinkedHashMap<String, TypeDeclarationNode> optionalParams = new LinkedHashMap<>();
@@ -265,13 +266,12 @@ public final class JsdocToEs6TypedConverter
             }
           }
           return functionType(returnType, requiredParams, optionalParams, restName, restType);
-        case Token.EQUALS:
+        case EQUALS:
           TypeDeclarationNode optionalParam = convertTypeNodeAST(n.getFirstChild());
           return optionalParam == null ? null : optionalParameter(optionalParam);
         default:
           throw new IllegalArgumentException(
-              "Unsupported node type: " + Token.name(n.getType())
-                  + " " + n.toStringTree());
+              "Unsupported node type: " + n.getType() + " " + n.toStringTree());
       }
     }
   }

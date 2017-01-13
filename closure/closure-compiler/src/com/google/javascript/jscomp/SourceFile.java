@@ -34,6 +34,7 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.Serializable;
 import java.io.StringReader;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -83,6 +84,12 @@ public class SourceFile implements StaticSourceFile, Serializable {
 
   private String code = null;
 
+  static final DiagnosticType DUPLICATE_ZIP_CONTENTS = DiagnosticType.warning(
+      "JSC_DUPLICATE_ZIP_CONTENTS",
+      "Two zip entries containing the same relative path.\n"
+      + "Entry 1: {0}\n"
+      + "Entry 2: {1}");
+
   /**
    * Construct a new abstract source file.
    *
@@ -119,7 +126,6 @@ public class SourceFile implements StaticSourceFile, Serializable {
     return lineOffsets.length;
   }
 
-
   private void findLineOffsets() {
     if (lineOffsets != null) {
       return;
@@ -137,6 +143,9 @@ public class SourceFile implements StaticSourceFile, Serializable {
     }
   }
 
+  private void resetLineOffsets() {
+    lineOffsets = null;
+  }
 
   //////////////////////////////////////////////////////////////////////////////
   // Implementation
@@ -170,16 +179,17 @@ public class SourceFile implements StaticSourceFile, Serializable {
     return code;
   }
 
-  private void setCode(String sourceCode) {
+  void setCode(String sourceCode) {
     this.setCode(sourceCode, false);
   }
 
-  private void setCode(String sourceCode, boolean removeUtf8Bom) {
+  void setCode(String sourceCode, boolean removeUtf8Bom) {
     if (removeUtf8Bom && sourceCode != null && sourceCode.startsWith(UTF8_BOM)) {
       code = sourceCode.substring(UTF8_BOM.length());
     } else {
       code = sourceCode;
     }
+    resetLineOffsets();
   }
 
   public String getOriginalPath() {
@@ -348,15 +358,27 @@ public class SourceFile implements StaticSourceFile, Serializable {
 
       while (zipEntries.hasMoreElements()) {
         ZipEntry zipEntry = zipEntries.nextElement();
-        URL zipEntryUrl = new URL("jar:file:" + absoluteZipPath + "!/" + zipEntry.getName());
-        sourceFiles.add(
-            builder()
-                .withCharset(inputCharset)
-                .withOriginalPath(zipName + "!/" + zipEntry.getName())
-                .buildFromUrl(zipEntryUrl));
+        String entryName = zipEntry.getName();
+        if (!entryName.endsWith(".js")) { // Only accept js files
+          continue;
+        }
+        sourceFiles.add(fromZipEntry(zipName, absoluteZipPath, entryName, inputCharset));
       }
     }
     return sourceFiles;
+  }
+
+  @GwtIncompatible("java.net.URL")
+  public static SourceFile fromZipEntry(
+      String originalZipPath, String absoluteZipPath, String entryPath, Charset inputCharset)
+      throws MalformedURLException {
+    String zipEntryPath = "jar:file:" + absoluteZipPath + "!/" + entryPath;
+    URL zipEntryUrl = new URL(zipEntryPath);
+
+    return builder()
+        .withCharset(inputCharset)
+        .withOriginalPath(originalZipPath + "!/" + entryPath)
+        .buildFromUrl(zipEntryUrl);
   }
 
   @GwtIncompatible("java.io.File")

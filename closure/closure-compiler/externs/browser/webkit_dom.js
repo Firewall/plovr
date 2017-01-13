@@ -148,9 +148,9 @@ Console.prototype.dirxml = function(var_args) {};
 Console.prototype.table = function(data, opt_columns) {};
 
 /**
- * @return {undefined}
+ * @param {...*} var_args
  */
-Console.prototype.trace = function() {};
+Console.prototype.trace = function(var_args) {};
 
 /**
  * @param {*} value
@@ -279,3 +279,12 @@ ViewCSS.prototype.getMatchedCSSRules =
  */
 Document.prototype.getCSSCanvasContext =
     function(contextId, name, width, height) {};
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @return {?Range}
+ * @nosideeffects
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Document/caretRangeFromPoint
+ */
+Document.prototype.caretRangeFromPoint = function(x, y) {};

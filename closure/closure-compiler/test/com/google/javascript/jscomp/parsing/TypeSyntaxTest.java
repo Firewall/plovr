@@ -111,15 +111,30 @@ public final class TypeSyntaxTest extends TestCase {
     parse("var /** string */ foo: string = 'hello';");
   }
 
+  public void testTypedGetterSetterDeclaration() {
+    Node n = parse("var x = {get a(): number {\n}};", LanguageMode.ECMASCRIPT6_TYPED);
+    assertDeclaredType("number type", numberType(),
+        n.getFirstFirstChild().getFirstFirstChild().getFirstChild());
+    n = parse("var x = {set a(v: number) {\n}};", LanguageMode.ECMASCRIPT6_TYPED);
+    assertDeclaredType("number type", numberType(),
+        n.getFirstFirstChild().getFirstFirstChild().getFirstChild().getSecondChild()
+            .getFirstChild());
+  }
+
+  public void testSetterDeclarationWithReturnType() {
+    expectErrors("Parse error. setter should not have any returns");
+    parse("var x = {set a(x): number {\n}};", LanguageMode.ECMASCRIPT6_TYPED);
+  }
+
   public void testFunctionParamDeclaration() {
     Node fn = parse("function foo(x: string) {\n}").getFirstChild();
-    Node param = fn.getFirstChild().getNext().getFirstChild();
+    Node param = fn.getSecondChild().getFirstChild();
     assertDeclaredType("string type", stringType(), param);
   }
 
   public void testFunctionParamDeclaration_defaultValue() {
     Node fn = parse("function foo(x: string = 'hello') {\n}").getFirstChild();
-    Node param = fn.getFirstChild().getNext().getFirstChild();
+    Node param = fn.getSecondChild().getFirstChild();
     assertDeclaredType("string type", stringType(), param);
   }
 
@@ -138,8 +153,8 @@ public final class TypeSyntaxTest extends TestCase {
   }
 
   public void disabled_testFunctionParamDeclaration_arrow() {
-    Node fn = parse("(x: string) => 'hello' + x;").getFirstChild().getFirstChild();
-    Node param = fn.getFirstChild().getNext().getFirstChild();
+    Node fn = parse("(x: string) => 'hello' + x;").getFirstFirstChild();
+    Node param = fn.getSecondChild().getFirstChild();
     assertDeclaredType("string type", stringType(), param);
   }
 
@@ -158,7 +173,7 @@ public final class TypeSyntaxTest extends TestCase {
   }
 
   public void disabled_testFunctionReturn_arrow() {
-    Node fn = parse("(): string => 'hello';").getFirstChild().getFirstChild();
+    Node fn = parse("(): string => 'hello';").getFirstFirstChild();
     assertDeclaredType("string type", stringType(), fn);
   }
 
@@ -169,7 +184,7 @@ public final class TypeSyntaxTest extends TestCase {
 
   public void testFunctionReturn_typeInJsdocOnly() {
     parse("function /** string */ foo() { return 'hello'; }",
-        "function/** string */foo() {\n  return 'hello';\n}");
+        "function/** string */ foo() {\n  return 'hello';\n}");
   }
 
   public void testCompositeType() {
@@ -265,7 +280,7 @@ public final class TypeSyntaxTest extends TestCase {
 
     Node ast = parse("var x: string | number[] | Array<Foo>;");
     TypeDeclarationNode union = (TypeDeclarationNode)
-        (ast.getFirstChild().getFirstChild().getProp(Node.DECLARED_TYPE_EXPR));
+        (ast.getFirstFirstChild().getProp(Node.DECLARED_TYPE_EXPR));
     assertEquals(3, union.getChildCount());
   }
 
@@ -303,17 +318,17 @@ public final class TypeSyntaxTest extends TestCase {
 
     Node ast = parse("var n: (p1: string, p2: number) => boolean[];");
     TypeDeclarationNode function = (TypeDeclarationNode)
-        (ast.getFirstChild().getFirstChild().getProp(Node.DECLARED_TYPE_EXPR));
+        (ast.getFirstFirstChild().getProp(Node.DECLARED_TYPE_EXPR));
     assertNode(function).hasType(Token.FUNCTION_TYPE);
 
     Node ast2 = parse("var n: (p1: string, p2: number) => boolean | number;");
     TypeDeclarationNode function2 = (TypeDeclarationNode)
-        (ast2.getFirstChild().getFirstChild().getProp(Node.DECLARED_TYPE_EXPR));
+        (ast2.getFirstFirstChild().getProp(Node.DECLARED_TYPE_EXPR));
     assertNode(function2).hasType(Token.FUNCTION_TYPE);
 
     Node ast3 = parse("var n: (p1: string, p2: number) => Array<Foo>;");
     TypeDeclarationNode function3 = (TypeDeclarationNode)
-        (ast3.getFirstChild().getFirstChild().getProp(Node.DECLARED_TYPE_EXPR));
+        (ast3.getFirstFirstChild().getProp(Node.DECLARED_TYPE_EXPR));
     assertNode(function3).hasType(Token.FUNCTION_TYPE);
   }
 
@@ -386,8 +401,8 @@ public final class TypeSyntaxTest extends TestCase {
   }
 
   public void testFunctionType_notEs6Typed() {
-    testNotEs6Typed("var n: (p1:string) => boolean;", "type annotation");
-    testNotEs6Typed("var n: (p1?) => boolean;", "type annotation", "optional parameter");
+    testNotEs6TypedFullError("var n: (p1:string) => boolean;", "Parse error. ')' expected");
+    testNotEs6TypedFullError("var n: (p1?) => boolean;", "Parse error. ')' expected");
   }
 
   public void testInterface() {
@@ -461,8 +476,8 @@ public final class TypeSyntaxTest extends TestCase {
   }
 
   public void testMemberVariable_notEs6Typed() {
-    testNotEs6Typed("class Foo {\n  foo;\n}", "member variable in class");
-    testNotEs6Typed("class Foo {\n  ['foo'];\n}", "member variable in class", "computed property");
+    testNotEs6TypedFullError("class Foo {\n  foo;\n}", "Parse error. '(' expected");
+    testNotEs6TypedFullError("class Foo {\n  ['foo'];\n}", "Parse error. '(' expected");
   }
 
   public void testMethodType() {
@@ -473,7 +488,7 @@ public final class TypeSyntaxTest extends TestCase {
         + "  }\n"
         + "}").getFirstChild();
     Node members = classDecl.getChildAtIndex(2);
-    Node method = members.getFirstChild().getFirstChild();
+    Node method = members.getFirstFirstChild();
     assertDeclaredType("string return type", stringType(), method);
   }
 
@@ -518,7 +533,7 @@ public final class TypeSyntaxTest extends TestCase {
     parse("class Foo implements Bar, Baz {\n}");
     parse("class Foo extends Bar implements Baz {\n}");
 
-    testNotEs6Typed("class Foo implements Bar {\n}", "implements");
+    testNotEs6TypedFullError("class Foo implements Bar {\n}", "Parse error. '{' expected");
   }
 
   public void testTypeAlias() {
@@ -598,24 +613,25 @@ public final class TypeSyntaxTest extends TestCase {
     parse("class Foo { static private constructor() {}}");
 
 
+    String accessModifierInterpretedAsPropertyNameErrorMessage = "Parse error. '(' expected";
     testNotEs6TypedFullError(
         "class Foo { private constructor() {} }",
-        "Parse error. Accessibility modifier is only supported in ES6 typed mode");
+        accessModifierInterpretedAsPropertyNameErrorMessage);
     testNotEs6TypedFullError(
         "class Foo { protected bar; }",
-        "Parse error. Accessibility modifier is only supported in ES6 typed mode");
+        accessModifierInterpretedAsPropertyNameErrorMessage);
     testNotEs6TypedFullError(
         "class Foo { protected bar() {} }",
-        "Parse error. Accessibility modifier is only supported in ES6 typed mode");
+        accessModifierInterpretedAsPropertyNameErrorMessage);
     testNotEs6TypedFullError(
         "class Foo { private get() {} }",
-        "Parse error. Accessibility modifier is only supported in ES6 typed mode");
+        accessModifierInterpretedAsPropertyNameErrorMessage);
     testNotEs6TypedFullError(
         "class Foo { private set() {} }",
-        "Parse error. Accessibility modifier is only supported in ES6 typed mode");
+        accessModifierInterpretedAsPropertyNameErrorMessage);
     testNotEs6TypedFullError(
         "class Foo { private [Symbol.iterator]() {} }",
-        "Parse error. Accessibility modifier is only supported in ES6 typed mode");
+        accessModifierInterpretedAsPropertyNameErrorMessage);
   }
 
   public void testOptionalProperty() {
@@ -664,8 +680,7 @@ public final class TypeSyntaxTest extends TestCase {
     expectErrors("Parse error. Index signature parameter type must be 'string' or 'number'");
     parse("interface I {\n  [foo: any]: number;\n}");
 
-    testNotEs6Typed("class C {\n  [foo: number]: number;\n}",
-        "index signature", "type annotation", "type annotation");
+    testNotEs6TypedFullError("class C {\n  [foo: number]: number;\n}", "Parse error. ']' expected");
   }
 
   public void testCallSignature() {
@@ -727,6 +742,9 @@ public final class TypeSyntaxTest extends TestCase {
 
     parse("declare namespace foo {\n  interface I {\n  }\n}");
     parse("declare namespace foo {\n  class I {\n    bar();\n  }\n}");
+    parse("declare namespace foo {\n  class I {\n    static bar();\n  }\n}");
+    parse("declare namespace foo {\n  class I {\n    async bar();\n  }\n}");
+    parse("declare namespace foo {\n  class I {\n    static async bar();\n  }\n}");
     parse("declare namespace foo {\n  enum E {\n  }\n}");
     parse("declare namespace foo {\n  function f();\n}");
     parse("declare namespace foo {\n  var foo\n}");

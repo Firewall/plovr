@@ -85,7 +85,7 @@ public final class JsFunctionParser extends JsFileLineParser {
     StringBuilder sb = new StringBuilder("(?:^|;)\\s*(");
 
     for (String function : functions) {
-      sb.append(Pattern.quote(function) + "|");
+      sb.append(Pattern.quote(function)).append("|");
     }
 
     // remove last '|'
@@ -147,6 +147,6 @@ public final class JsFunctionParser extends JsFileLineParser {
     }
 
     return !shortcutMode || hasFunctions ||
-        CharMatcher.WHITESPACE.matchesAllOf(line);
+        CharMatcher.whitespace().matchesAllOf(line);
   }
 }

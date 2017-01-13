@@ -39,8 +39,8 @@ import java.util.Map;
  */
 public final class TemplateAstMatcher {
   // Custom Token types for to use as placeholders in the template AST.
-  private static final int TEMPLATE_TYPE_PARAM = Token.PLACEHOLDER1;
-  private static final int TEMPLATE_LOCAL_NAME = Token.PLACEHOLDER2;
+  private static final Token TEMPLATE_TYPE_PARAM = Token.PLACEHOLDER1;
+  private static final Token TEMPLATE_LOCAL_NAME = Token.PLACEHOLDER2;
 
   private final AbstractCompiler compiler;
 
@@ -77,17 +77,7 @@ public final class TemplateAstMatcher {
   /**
    * The strategy to use when matching the {@code JSType} of nodes.
    */
-  private TypeMatchingStrategy typeMatchingStrategy;
-
-  /**
-   * Constructs this matcher with a Function node that serves as the template
-   * to match all other nodes against. The body of the function will be used
-   * to match against.
-   */
-  public TemplateAstMatcher(
-      AbstractCompiler compiler, Node templateFunctionNode) {
-    this(compiler, templateFunctionNode, TypeMatchingStrategy.DEFAULT);
-  }
+  private final TypeMatchingStrategy typeMatchingStrategy;
 
   /**
    * Constructs this matcher with a Function node that serves as the template
@@ -106,7 +96,7 @@ public final class TemplateAstMatcher {
 
     this.compiler = compiler;
     this.templateStart = initTemplate(templateFunctionNode);
-    this.typeMatchingStrategy = typeMatchingStrategy;
+    this.typeMatchingStrategy = Preconditions.checkNotNull(typeMatchingStrategy);
   }
 
   /**
@@ -171,7 +161,7 @@ public final class TemplateAstMatcher {
     if (body.hasOneChild() && body.getFirstChild().isExprResult()) {
       // When matching an expression, don't require it to be a complete
       // statement.
-      startNode = body.getFirstChild().getFirstChild();
+      startNode = body.getFirstFirstChild();
     } else {
       startNode = body.getFirstChild();
     }
@@ -203,7 +193,7 @@ public final class TemplateAstMatcher {
     fn.getFirstChild().setString("");
 
     // Build a list of parameter names and types.
-    Node templateParametersNode = fn.getFirstChild().getNext();
+    Node templateParametersNode = fn.getSecondChild();
     JSDocInfo info = NodeUtil.getBestJSDocInfo(fn);
     if (templateParametersNode.hasChildren()) {
       Preconditions.checkNotNull(info,

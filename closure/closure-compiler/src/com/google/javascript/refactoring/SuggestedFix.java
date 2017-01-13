@@ -88,8 +88,8 @@ public final class SuggestedFix {
   @Override public String toString() {
     StringBuilder sb = new StringBuilder();
     for (Map.Entry<String, Collection<CodeReplacement>> entry : replacements.asMap().entrySet()) {
-      sb.append("Replacements for file: " + entry.getKey() + "\n");
-      Joiner.on("\n").appendTo(sb, entry.getValue());
+      sb.append("Replacements for file: ").append(entry.getKey()).append("\n");
+      Joiner.on("\n\n").appendTo(sb, entry.getValue());
     }
     return sb.toString();
   }
@@ -127,10 +127,26 @@ public final class SuggestedFix {
     }
 
     /**
+     * Inserts the text after the given node
+     */
+    public Builder insertAfter(Node node, String text) {
+      int position = node.getSourceOffset() + node.getLength();
+      replacements.put(
+          node.getSourceFileName(),
+          new CodeReplacement(position, 0, text));
+      return this;
+    }
+
+    /**
      * Inserts a new node before the provided node.
      */
     public Builder insertBefore(Node nodeToInsertBefore, Node n, AbstractCompiler compiler) {
-      return insertBefore(nodeToInsertBefore, generateCode(compiler, n));
+      return insertBefore(nodeToInsertBefore, n, compiler, "");
+    }
+
+    private Builder insertBefore(
+        Node nodeToInsertBefore, Node n, AbstractCompiler compiler, String sortKey) {
+      return insertBefore(nodeToInsertBefore, generateCode(compiler, n), sortKey);
     }
 
     /**
@@ -139,11 +155,12 @@ public final class SuggestedFix {
      * printing comments.
      */
     public Builder insertBefore(Node nodeToInsertBefore, String content) {
+      return insertBefore(nodeToInsertBefore, content, "");
+    }
+
+    private Builder insertBefore(Node nodeToInsertBefore, String content, String sortKey) {
       int startPosition = nodeToInsertBefore.getSourceOffset();
-      // TODO(mknichel): This case is not covered by NodeUtil.getBestJSDocInfo
-      JSDocInfo jsDoc = nodeToInsertBefore.isExprResult()
-          ? nodeToInsertBefore.getFirstChild().getJSDocInfo()
-          : nodeToInsertBefore.getJSDocInfo();
+      JSDocInfo jsDoc = NodeUtil.getBestJSDocInfo(nodeToInsertBefore);
       if (jsDoc != null) {
         startPosition = jsDoc.getOriginalCommentPosition();
       }
@@ -151,7 +168,7 @@ public final class SuggestedFix {
           "No source file name for node: %s", nodeToInsertBefore);
       replacements.put(
           nodeToInsertBefore.getSourceFileName(),
-          new CodeReplacement(startPosition, 0, content));
+          new CodeReplacement(startPosition, 0, content, sortKey));
       return this;
     }
 
@@ -166,20 +183,24 @@ public final class SuggestedFix {
     /**
      * Deletes a node and its contents from the source file.
      */
-    public Builder deleteWithoutRemovingSurroundWhitespace(Node n) {
+    public Builder deleteWithoutRemovingWhitespaceBefore(Node n) {
       return delete(n, false);
     }
 
     /**
      * Deletes a node and its contents from the source file.
      */
-    private Builder delete(Node n, boolean deleteSurroundingWhitespace) {
+    private Builder delete(Node n, boolean deleteWhitespaceBefore) {
       int startPosition = n.getSourceOffset();
-      int length = n.getLength();
-      // TODO(mknichel): This case is not covered by NodeUtil.getBestJSDocInfo
-      JSDocInfo jsDoc = n.isExprResult() ? n.getFirstChild().getJSDocInfo() : n.getJSDocInfo();
+      int length;
+      if (n.getNext() != null && NodeUtil.getBestJSDocInfo(n.getNext()) == null) {
+        length = n.getNext().getSourceOffset() - startPosition;
+      } else {
+        length = n.getLength();
+      }
+      JSDocInfo jsDoc = NodeUtil.getBestJSDocInfo(n);
       if (jsDoc != null) {
-        length = n.getLength() + (startPosition - jsDoc.getOriginalCommentPosition());
+        length += (startPosition - jsDoc.getOriginalCommentPosition());
         startPosition = jsDoc.getOriginalCommentPosition();
       }
       // Variable declarations require special handling since the NAME node doesn't contain enough
@@ -197,7 +218,7 @@ public final class SuggestedFix {
           length = (child.getSourceOffset() + child.getLength()) - startPosition;
         }
         if (n.getParent().getLastChild() == n && n != n.getParent().getFirstChild()) {
-          Node previousSibling = n.getParent().getChildBefore(n);
+          Node previousSibling = n.getPrevious();
           if (previousSibling.hasChildren()) {
             Node child = previousSibling.getFirstChild();
             int startPositionDiff = startPosition - (child.getSourceOffset() + child.getLength());
@@ -211,11 +232,12 @@ public final class SuggestedFix {
           }
         }
       }
+
       Node parent = n.getParent();
-      if (deleteSurroundingWhitespace
+      if (deleteWhitespaceBefore
           && parent != null
           && (parent.isScript() || parent.isBlock())) {
-        Node previousSibling = parent.getChildBefore(n);
+        Node previousSibling = n.getPrevious();
         if (previousSibling != null) {
           int previousSiblingEndPosition =
               previousSibling.getSourceOffset() + previousSibling.getLength();
@@ -265,7 +287,7 @@ public final class SuggestedFix {
       } else if (n.isStringKey()) {
         nodeToRename = n;
       } else if (n.isString()) {
-        Preconditions.checkState(n.getParent().isGetProp());
+        Preconditions.checkState(n.getParent().isGetProp(), n);
         nodeToRename = n;
       } else {
         // TODO(mknichel): Implement the rest of this function.
@@ -275,6 +297,26 @@ public final class SuggestedFix {
       replacements.put(
           nodeToRename.getSourceFileName(),
           new CodeReplacement(nodeToRename.getSourceOffset(), nodeToRename.getLength(), name));
+      return this;
+    }
+
+    /**
+     * Replaces a range of nodes with the given content.
+     */
+    public Builder replaceRange(Node first, Node last, String newContent) {
+      Preconditions.checkState(first.getParent() == last.getParent());
+
+      int start;
+      JSDocInfo jsdoc = NodeUtil.getBestJSDocInfo(first);
+      if (jsdoc == null) {
+        start = first.getSourceOffset();
+      } else {
+        start = jsdoc.getOriginalCommentPosition();
+      }
+
+      int end = last.getSourceOffset() + last.getLength();
+      int length = end - start;
+      replacements.put(first.getSourceFileName(), new CodeReplacement(start, length, newContent));
       return this;
     }
 
@@ -397,7 +439,7 @@ public final class SuggestedFix {
       Preconditions.checkArgument(
           n.isCall(), "insertArguments is only applicable to function call nodes.");
       int startPosition;
-      Node argument = n.getFirstChild().getNext();
+      Node argument = n.getSecondChild();
       int i = 0;
       while (argument != null && i < position) {
         argument = argument.getNext();
@@ -444,7 +486,7 @@ public final class SuggestedFix {
           "deleteArgument() cannot be used on a function call with no arguments");
       Preconditions.checkArgument(position >= 0 && position < numArguments,
           "The specified position must be less than the number of arguments.");
-      Node argument = n.getFirstChild().getNext();
+      Node argument = n.getSecondChild();
 
       // Points at the first position in the code we will remove.
       int startOfArgumentToRemove = -1;
@@ -511,10 +553,7 @@ public final class SuggestedFix {
           IR.string(namespace)));
 
       // Find the right goog.require node to insert this after.
-      Node script = node.getParent();
-      while (script != null && !script.isScript()) {
-        script = script.getParent();
-      }
+      Node script = NodeUtil.getEnclosingScript(node);
       if (script == null) {
         return this;
       }
@@ -565,7 +604,8 @@ public final class SuggestedFix {
         }
       }
 
-      return insertBefore(nodeToInsertBefore, googRequireNode, m.getMetadata().getCompiler());
+      return insertBefore(
+          nodeToInsertBefore, googRequireNode, m.getMetadata().getCompiler(), namespace);
     }
 
     /**
@@ -575,16 +615,13 @@ public final class SuggestedFix {
     public Builder removeGoogRequire(Match m, String namespace) {
       Node googRequireNode = findGoogRequireNode(m.getNode(), m.getMetadata(), namespace);
       if (googRequireNode != null) {
-        return deleteWithoutRemovingSurroundWhitespace(googRequireNode);
+        return deleteWithoutRemovingWhitespaceBefore(googRequireNode);
       }
       return this;
     }
 
     private Node findGoogRequireNode(Node n, NodeMetadata metadata, String namespace) {
-      Node script = n.getParent();
-      while (script != null && !script.isScript()) {
-        script = script.getParent();
-      }
+      Node script = NodeUtil.getEnclosingScript(n);
 
       if (script != null) {
         Node child = script.getFirstChild();
@@ -611,6 +648,9 @@ public final class SuggestedFix {
       CompilerOptions compilerOptions = new CompilerOptions();
       compilerOptions.setPreferSingleQuotes(true);
       compilerOptions.setLineLengthThreshold(80);
+      compilerOptions.setUseOriginalNamesInOutput(true);
+      // We're refactoring existing code, so no need to escape values inside strings.
+      compilerOptions.setTrustedStrings(true);
       return new CodePrinter.Builder(node)
           .setCompilerOptions(compilerOptions)
           .setTypeRegistry(compiler.getTypeRegistry())

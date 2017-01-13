@@ -104,9 +104,10 @@ Window.prototype.globalStorage;
 
 /**
  * @type {!History}
+ * @suppress {duplicate}
  * @see https://developer.mozilla.org/en/DOM/window.history
  */
-Window.prototype.history;
+var history;
 
 /**
  * Returns the number of frames (either frame or iframe elements) in the
@@ -118,6 +119,10 @@ Window.prototype.history;
 Window.prototype.length;
 
 /**
+ * Location has an exception in the DeclaredGlobalExternsOnWindow pass
+ * so we have to manually include it:
+ * https://github.com/google/closure-compiler/blob/master/src/com/google/javascript/jscomp/DeclaredGlobalExternsOnWindow.java#L116
+ *
  * @type {!Location}
  * @implicitCast
  * @see https://developer.mozilla.org/en/DOM/window.location
@@ -308,18 +313,17 @@ Document.prototype.alinkColor;
 
 /**
  * @see https://developer.mozilla.org/en/DOM/document.anchors
- * @type {HTMLCollection}
+ * @type {HTMLCollection<!HTMLAnchorElement>}
  */
 Document.prototype.anchors;
 
 /**
  * @see https://developer.mozilla.org/en/DOM/document.applets
- * @type {HTMLCollection}
+ * @type {HTMLCollection<!HTMLAppletElement>}
  */
 Document.prototype.applets;
 /** @type {boolean} */ Document.prototype.async;
 /** @type {string?} */ Document.prototype.baseURI;
-Document.prototype.baseURIObject;
 
 /**
  * @see https://developer.mozilla.org/en/DOM/document.bgColor
@@ -356,7 +360,7 @@ Document.prototype.domain;
 
 /**
  * @see https://developer.mozilla.org/en/DOM/document.embeds
- * @type {HTMLCollection}
+ * @type {HTMLCollection<!HTMLEmbedElement>}
  */
 Document.prototype.embeds;
 
@@ -370,12 +374,15 @@ Document.prototype.fgColor;
 
 /**
  * @see https://developer.mozilla.org/en/DOM/document.forms
- * @type {HTMLCollection}
+ * @type {HTMLCollection<!HTMLFormElement>}
  */
 Document.prototype.forms;
 
-/** @type {number} */ Document.prototype.height;
-/** @type {HTMLCollection} */ Document.prototype.images;
+/** @type {number} */
+Document.prototype.height;
+
+/** @type {HTMLCollection<!HTMLImageElement>} */
+Document.prototype.images;
 
 /**
  * @type {string}
@@ -391,7 +398,7 @@ Document.prototype.linkColor;
 
 /**
  * @see https://developer.mozilla.org/en/DOM/document.links
- * @type {HTMLCollection}
+ * @type {HTMLCollection<(!HTMLAreaElement|!HTMLAnchorElement)>}
  */
 Document.prototype.links;
 
@@ -442,17 +449,6 @@ Document.prototype.clear = function() {};
 Document.prototype.close;
 
 /**
- * @see https://developer.mozilla.org/en-US/docs/Web/API/document.createElementNS
- * @see http://w3c.github.io/webcomponents/spec/custom/#extensions-to-document-interface-to-instantiate
- * @param {?string} namespaceURI
- * @param {string} qualifiedName
- * @param {string=} opt_typeExtension
- * @return {!Element}
- */
-Document.prototype.createElementNS =
-    function(namespaceURI, qualifiedName, opt_typeExtension) {};
-
-/**
  * @param {string} type
  * @return {Event}
  */
@@ -472,44 +468,12 @@ Document.prototype.evaluate;
 Document.prototype.execCommand;
 
 /**
- * @param {string} s id.
- * @return {HTMLElement}
- * @nosideeffects
- * @see https://developer.mozilla.org/en/DOM/document.getElementById
- */
-Document.prototype.getElementById = function(s) {};
-
-/**
  * @param {string} name
- * @return {!NodeList}
+ * @return {!NodeList<!Element>}
  * @nosideeffects
  * @see https://developer.mozilla.org/en/DOM/document.getElementsByClassName
  */
 Document.prototype.getElementsByClassName = function(name) {};
-
-/**
- * @param {string} name
- * @return {!NodeList}
- * @nosideeffects
- * @see https://developer.mozilla.org/en/DOM/document.getElementsByName
- */
-Document.prototype.getElementsByName = function(name) {};
-
-/**
- * @param {string} namespace
- * @param {string} name
- * @return {!NodeList}
- * @nosideeffects
- * @see https://developer.mozilla.org/en/DOM/document.getElementsByTagNameNS
- */
-Document.prototype.getElementsByTagNameNS = function(namespace, name) {};
-
-/**
- * @param {Node} externalNode
- * @param {boolean} deep
- * @return {Node}
- */
-Document.prototype.importNode = function(externalNode, deep) {};
 
 /** @param {string} uri */
 Document.prototype.load = function(uri) {};
@@ -555,12 +519,14 @@ Document.prototype.queryCommandValue;
 /**
  * @see https://developer.mozilla.org/en/DOM/document.write
  * @param {string} text
+ * @return {undefined}
  */
 Document.prototype.write = function(text) {};
 
 /**
  * @see https://developer.mozilla.org/en/DOM/document.writeln
  * @param {string} text
+ * @return {undefined}
  */
 Document.prototype.writeln = function(text) {};
 
@@ -732,22 +698,11 @@ Selection.prototype.selectAllChildren;
  */
 Selection.prototype.selectionLanguageChange;
 
-/** @type {NamedNodeMap} */ Element.prototype.attributes;
-Element.prototype.baseURIObject;
-/** @type {!NodeList} */ Element.prototype.childNodes;
-
 /**
- * @type {!NodeList}
+ * @type {!NodeList<!Element>}
  * @see https://developer.mozilla.org/en/DOM/element.children
  */
 Element.prototype.children;
-
-/**
- * @type {string}
- * @implicitCast
- */
-Element.prototype.className;
-/** @type {string} */ Element.prototype.dir;
 
 /**
  * Firebug sets this property on elements it is inserting into the DOM.
@@ -755,60 +710,45 @@ Element.prototype.className;
  */
 Element.prototype.firebugIgnore;
 
-/** @type {Node} */ Element.prototype.firstChild;
 /**
+ * Note: According to the spec, id is actually defined on HTMLElement and
+ * SVGElement, rather than Element. Deliberately ignore this so that saying
+ * Element.id is allowed.
  * @type {string}
  * @implicitCast
  */
 Element.prototype.id;
+
 /**
  * @type {string}
+ * @see http://www.w3.org/TR/DOM-Parsing/#widl-Element-innerHTML
  * @implicitCast
  */
 Element.prototype.innerHTML;
-/** @type {string} */ Element.prototype.lang;
-/** @type {Node} */ Element.prototype.lastChild;
-Element.prototype.localName;
-Element.prototype.name;
-Element.prototype.namespaceURI;
-/** @type {Node} */ Element.prototype.nextSibling;
-Element.prototype.nodeName;
-Element.prototype.nodePrincipal;
-/** @type {number} */ Element.prototype.nodeType;
-Element.prototype.nodeValue;
-/** @type {Document} */ Element.prototype.ownerDocument;
-/** @type {Node} */ Element.prototype.parentNode;
-Element.prototype.prefix;
-/** @type {Node} */ Element.prototype.previousSibling;
-/** @type {!CSSStyleDeclaration} */ Element.prototype.style;
-/**
- * @type {number}
- * @implicitCast
- */
-Element.prototype.tabIndex;
 
 /**
+ * Note: According to the spec, name is defined on specific types of
+ * HTMLElements, rather than on Node, Element, or HTMLElement directly.
+ * Ignore this.
  * @type {string}
- * @implicitCast
  */
-Element.prototype.textContent;
-/** @type {string} */ Element.prototype.title;
+Element.prototype.name;
+
+Element.prototype.nodePrincipal;
 
 /**
- * @param {Node} child
- * @return {Node} appendedElement.
- * @override
+ * @type {!CSSStyleDeclaration}
+ * This belongs on HTMLElement rather than Element, but that
+ * breaks a lot.
+ * TODO(rdcronin): Remove this declaration once the breakage is fixed.
  */
-Element.prototype.appendChild = function(child) {};
+Element.prototype.style;
 
 /**
  * @override
  * @return {!Element}
  */
 Element.prototype.cloneNode = function(deep) {};
-
-/** @override */
-Element.prototype.dispatchEvent = function(event) {};
 
 /** @return {undefined} */
 Element.prototype.blur = function() {};
@@ -818,46 +758,6 @@ Element.prototype.click = function() {};
 
 /** @return {undefined} */
 Element.prototype.focus = function() {};
-
-/**
- * @return {boolean}
- * @override
- * @nosideeffects
- */
-Element.prototype.hasAttributes = function() {};
-
-/**
- * @return {boolean}
- * @override
- * @nosideeffects
- */
-Element.prototype.hasChildNodes = function() {};
-
-/** @override */
-Element.prototype.insertBefore = function(insertedNode, adjacentNode) {};
-
-/**
- * @return {undefined}
- * @override
- */
-Element.prototype.normalize = function() {};
-
-/**
- * @param {Node} removedNode
- * @return {!Node}
- * @override
- */
-Element.prototype.removeChild = function(removedNode) {};
-
-/**
- * @param {boolean=} opt_useCapture
- * @override
- */
-Element.prototype.removeEventListener = function(type, handler, opt_useCapture)
-    {};
-
-/** @override */
-Element.prototype.replaceChild = function(insertedNode, replacedNode) {};
 
 /** @type {number} */
 HTMLInputElement.prototype.selectionStart;
@@ -887,44 +787,11 @@ HTMLTextAreaElement.prototype.selectionEnd;
 HTMLTextAreaElement.prototype.setSelectionRange =
     function(selectionStart, selectionEnd) {};
 
-/** @constructor */
-function Navigator() {}
-
-/**
- * @type {string}
- * @see https://developer.mozilla.org/en/Navigator.appCodeName
- */
-Navigator.prototype.appCodeName;
-
-/**
- * @type {string}
- * @see https://developer.mozilla.org/en/Navigator.appVersion
- */
-Navigator.prototype.appName;
-
-/**
- * @type {string}
- * @see https://developer.mozilla.org/en/Navigator.appVersion
- */
-Navigator.prototype.appVersion;
-
 /**
  * @type {string}
  * @see https://developer.mozilla.org/en/Navigator.buildID
  */
 Navigator.prototype.buildID;
-
-/**
- * @type {boolean}
- * @see https://developer.mozilla.org/en/Navigator.cookieEnabled
- */
-Navigator.prototype.cookieEnabled;
-
-/**
- * @type {string}
- * @see https://developer.mozilla.org/en/Navigator.language
- */
-Navigator.prototype.language;
 
 /**
  * @type {!Array<string>|undefined}
@@ -933,40 +800,10 @@ Navigator.prototype.language;
 Navigator.prototype.languages;
 
 /**
- * @type {MimeTypeArray}
- * @see https://developer.mozilla.org/en/Navigator.mimeTypes
- */
-Navigator.prototype.mimeTypes;
-
-/**
- * @type {boolean}
- * @see https://developer.mozilla.org/en/Navigator.onLine
- */
-Navigator.prototype.onLine;
-
-/**
  * @type {string}
  * @see https://developer.mozilla.org/en/Navigator.oscpu
  */
 Navigator.prototype.oscpu;
-
-/**
- * @type {string}
- * @see https://developer.mozilla.org/en/Navigator.platform
- */
-Navigator.prototype.platform;
-
-/**
- * @type {PluginArray}
- * @see https://developer.mozilla.org/en/Navigator.plugins
- */
-Navigator.prototype.plugins;
-
-/**
- * @type {string}
- * @see https://developer.mozilla.org/en/Navigator.product
- */
-Navigator.prototype.product;
 
 /**
  * @type {string}
@@ -990,12 +827,6 @@ Navigator.prototype.sendBeacon = function(url, opt_data) {};
 
 /**
  * @type {string}
- * @see https://developer.mozilla.org/en/Navigator.userAgent
- */
-Navigator.prototype.userAgent;
-
-/**
- * @type {string}
  * @see https://developer.mozilla.org/en/Navigator.vendor
  */
 Navigator.prototype.vendor;
@@ -1006,87 +837,6 @@ Navigator.prototype.vendor;
  */
 Navigator.prototype.vendorSub;
 
-/**
- * @type {function(): boolean}
- * @see https://developer.mozilla.org/en/Navigator.javaEnabled
- * @nosideeffects
- */
-Navigator.prototype.javaEnabled = function() {};
-
-/**
- * @constructor
- * @see https://developer.mozilla.org/en/DOM/PluginArray
- */
-function PluginArray() {}
-
-/** @type {number} */
-PluginArray.prototype.length;
-
-/**
- * @param {number} index
- * @return {Plugin}
- */
-PluginArray.prototype.item = function(index) {};
-
-/**
- * @param {string} name
- * @return {Plugin}
- */
-PluginArray.prototype.namedItem = function(name) {};
-
-/** @param {boolean=} reloadDocuments */
-PluginArray.prototype.refresh = function(reloadDocuments) {};
-
-/** @constructor */
-function MimeTypeArray() {}
-
-/**
- * @param {number} index
- * @return {MimeType}
- */
-MimeTypeArray.prototype.item = function(index) {};
-
-/**
- * @type {number}
- * @see https://developer.mozilla.org/en/DOM/window.navigator.mimeTypes
- */
-MimeTypeArray.prototype.length;
-
-/**
- * @param {string} name
- * @return {MimeType}
- */
-MimeTypeArray.prototype.namedItem = function(name) {};
-
-/** @constructor */
-function MimeType() {}
-
-/** @type {string} */
-MimeType.prototype.description;
-
-/** @type {Plugin} */
-MimeType.prototype.enabledPlugin;
-
-/** @type {string} */
-MimeType.prototype.suffixes;
-
-/** @type {string} */
-MimeType.prototype.type;
-
-/** @constructor */
-function Plugin() {}
-
-/** @type {string} */
-Plugin.prototype.description;
-
-/** @type {string} */
-Plugin.prototype.filename;
-
-/** @type {number} */
-Plugin.prototype.length;
-
-/** @type {string} */
-Plugin.prototype.name;
 
 /** @constructor */
 function BoxObject() {}

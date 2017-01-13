@@ -15,57 +15,52 @@
  */
 package com.google.javascript.jscomp.lint;
 
+import com.google.common.base.Function;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Ordering;
 import com.google.javascript.jscomp.AbstractCompiler;
+import com.google.javascript.jscomp.CodePrinter;
+import com.google.javascript.jscomp.CompilerOptions;
 import com.google.javascript.jscomp.DiagnosticType;
 import com.google.javascript.jscomp.HotSwapCompilerPass;
+import com.google.javascript.jscomp.JSError;
 import com.google.javascript.jscomp.NodeTraversal;
 import com.google.javascript.jscomp.NodeTraversal.AbstractShallowCallback;
+import com.google.javascript.jscomp.NodeUtil;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Checks that goog.require() and goog.provide() calls are sorted alphabetically.
- * TODO(tbreisacher): Add automatic fixes for these.
  */
 public final class CheckRequiresAndProvidesSorted extends AbstractShallowCallback
     implements HotSwapCompilerPass {
   public static final DiagnosticType REQUIRES_NOT_SORTED =
-      DiagnosticType.warning(
-          "JSC_REQUIRES_NOT_SORTED", "goog.require() statements are not sorted.");
+      DiagnosticType.warning("JSC_REQUIRES_NOT_SORTED",
+      "goog.require() statements are not sorted. The correct order is:\n\n{0}\n\n");
 
   public static final DiagnosticType PROVIDES_NOT_SORTED =
-      DiagnosticType.warning(
-          "JSC_PROVIDES_NOT_SORTED", "goog.provide() statements are not sorted.");
+      DiagnosticType.warning("JSC_PROVIDES_NOT_SORTED",
+          "goog.provide() statements are not sorted. The correct order is:\n\n{0}\n\n");
 
   public static final DiagnosticType PROVIDES_AFTER_REQUIRES =
       DiagnosticType.warning(
           "JSC_PROVIDES_AFTER_REQUIRES",
           "goog.provide() statements should be before goog.require() statements.");
 
-  public static final DiagnosticType MULTIPLE_MODULES_IN_FILE =
-      DiagnosticType.warning(
-          "JSC_MULTIPLE_MODULES_IN_FILE",
-          "There should only be a single goog.module() statement per file.");
+  private List<Node> requires;
+  private List<Node> provides;
+  private boolean containsShorthandRequire = false;
 
-  public static final DiagnosticType MODULE_AND_PROVIDES =
-      DiagnosticType.warning(
-          "JSC_MODULE_AND_PROVIDES",
-          "A file using goog.module() may not also use goog.provide() statements.");
-
-  private List<String> requiredNamespaces;
-  private List<String> providedNamespaces;
-  private List<String> moduleNamespaces;
   private final AbstractCompiler compiler;
 
   public CheckRequiresAndProvidesSorted(AbstractCompiler compiler) {
     this.compiler = compiler;
-    this.requiredNamespaces = new ArrayList<>();
-    this.providedNamespaces = new ArrayList<>();
-    this.moduleNamespaces = new ArrayList<>();
+    this.requires = new ArrayList<>();
+    this.provides = new ArrayList<>();
   }
 
   @Override
@@ -78,46 +73,74 @@ public final class CheckRequiresAndProvidesSorted extends AbstractShallowCallbac
     NodeTraversal.traverseEs6(compiler, scriptRoot, this);
   }
 
+  private final Function<Node, String> getNamespace =
+      new Function<Node, String>() {
+        @Override
+        public String apply(Node n) {
+          Preconditions.checkState(n.isCall(), n);
+          return n.getLastChild().getString();
+        }
+      };
+
+  private final Ordering<Node> alphabetical = Ordering.natural().onResultOf(getNamespace);
+
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
     switch (n.getType()) {
-      case Token.SCRIPT:
-        if (!Ordering.natural().isOrdered(requiredNamespaces)) {
-          t.report(n, REQUIRES_NOT_SORTED);
+      case SCRIPT:
+        // For now, don't report for requires being out of order if there are
+        // "var x = goog.require('goog.x');" style requires.
+        if (!containsShorthandRequire) {
+          reportIfOutOfOrder(requires, REQUIRES_NOT_SORTED);
         }
-        if (!Ordering.natural().isOrdered(providedNamespaces)) {
-          t.report(n, PROVIDES_NOT_SORTED);
-        }
-        if (!moduleNamespaces.isEmpty() && !providedNamespaces.isEmpty()) {
-          t.report(n, MODULE_AND_PROVIDES);
-        }
-        if (moduleNamespaces.size() > 1) {
-          t.report(n, MULTIPLE_MODULES_IN_FILE);
+        reportIfOutOfOrder(provides, PROVIDES_NOT_SORTED);
+        requires.clear();
+        provides.clear();
+        containsShorthandRequire = false;
+        break;
+      case CALL:
+        Node callee = n.getFirstChild();
+        if (!callee.matchesQualifiedName("goog.require")
+            && !callee.matchesQualifiedName("goog.provide")
+            && !callee.matchesQualifiedName("goog.module")) {
+          return;
         }
 
-        requiredNamespaces.clear();
-        providedNamespaces.clear();
-        moduleNamespaces.clear();
-        break;
-      case Token.CALL:
-        if (parent.isExprResult() && parent.getParent().isScript()) {
-          String req = compiler.getCodingConvention().extractClassNameIfRequire(n, parent);
-          if (req != null) {
-            requiredNamespaces.add(req);
+        if (parent.isExprResult() && NodeUtil.isTopLevel(parent.getParent())) {
+          String namespace = n.getLastChild().getString();
+          if (namespace == null) {
+            return;
           }
-          String prov = compiler.getCodingConvention().extractClassNameIfProvide(n, parent);
-          if (prov != null) {
-            if (!requiredNamespaces.isEmpty()) {
+          if (callee.matchesQualifiedName("goog.require")) {
+            requires.add(n);
+          } else {
+            if (!requires.isEmpty()) {
               t.report(n, PROVIDES_AFTER_REQUIRES);
             }
-            if (n.getFirstChild().matchesQualifiedName("goog.module")) {
-              moduleNamespaces.add(prov);
-            } else {
-              providedNamespaces.add(prov);
+            if (callee.matchesQualifiedName("goog.provide")) {
+              provides.add(n);
             }
           }
+        } else if (NodeUtil.isNameDeclaration(parent.getParent())
+            && callee.matchesQualifiedName("goog.require")) {
+          containsShorthandRequire = true;
         }
         break;
+    }
+  }
+
+  private void reportIfOutOfOrder(List<Node> requiresOrProvides, DiagnosticType warning) {
+    if (!alphabetical.isOrdered(requiresOrProvides)) {
+      List<String> correctOrder = new ArrayList<>();
+      for (Node require : alphabetical.sortedCopy(requiresOrProvides)) {
+        CodePrinter.Builder builder = new CodePrinter.Builder(require);
+        CompilerOptions options = new CompilerOptions();
+        options.setPreferSingleQuotes(true);
+        builder.setCompilerOptions(options);
+        correctOrder.add(builder.build() + ";");
+      }
+      compiler.report(
+          JSError.make(requiresOrProvides.get(0), warning, Joiner.on('\n').join(correctOrder)));
     }
   }
 }

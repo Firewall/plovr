@@ -47,26 +47,17 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   static final DiagnosticType READ_ERROR = DiagnosticType.error(
       "JSC_READ_ERROR", "Cannot read: {0}");
 
-  boolean needsEs6Runtime = false;
-  boolean needsEs6DartRuntime = false;
-
   /**
    * Will be called before each pass runs.
    */
-  void beforePass(String passName) {}
+  abstract void beforePass(String passName);
 
   /**
    * Will be called after each pass finishes.
    */
-  void afterPass(String passName) {}
+  abstract void afterPass(String passName);
 
   private LifeCycleStage stage = LifeCycleStage.RAW;
-
-  // For passes that traverse a list of functions rather than the AST.
-  // If false, the pass will analyze all functions, even those that didn't
-  // change since the last time it ran.
-  // Intended for use by the compiler only; not accessed by compiler users.
-  protected boolean analyzeChangedScopesOnly = true;
 
   // TODO(nicksantos): Decide if all of these are really necessary.
   // Many of them are just accessors that should be passed to the
@@ -82,14 +73,6 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
    * Looks up a source file by name. May return null.
    */
   abstract SourceFile getSourceFileByName(String sourceName);
-
-  /**
-   * Creates a new externs file.
-   * @param name A name for the new externs file.
-   * @throws IllegalArgumentException If the name of the externs file conflicts
-   *     with a pre-existing externs file.
-   */
-  abstract CompilerInput newExternInput(String name);
 
   /**
    * Gets the module graph. May return null if there aren't at least two
@@ -193,9 +176,9 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   /**
    * Used only by the new type inference
    */
-  abstract GlobalTypeInfo getSymbolTable();
+  abstract CompilerPass getSymbolTable();
 
-  abstract void setSymbolTable(GlobalTypeInfo symbolTable);
+  abstract void setSymbolTable(CompilerPass symbolTable);
 
   /**
    * Used by three passes that run in sequence (optimize-returns,
@@ -220,6 +203,11 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
    * Parses code for testing.
    */
   abstract Node parseTestCode(String code);
+
+  /**
+   * Prints a node to source code.
+   */
+  public abstract String toSource();
 
   /**
    * Prints a node to source code.
@@ -275,11 +263,6 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
 
   /** Passes that do cross-scope modifications use this (eg, InlineVariables) */
   abstract void reportChangeToEnclosingScope(Node n);
-
-  /**
-   * Returns true if compiling in IDE mode.
-   */
-  abstract boolean isIdeMode();
 
   /**
    * Represents the different contexts for which the compiler could have
@@ -416,10 +399,16 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
   abstract GlobalVarReferenceMap getGlobalVarReferences();
 
   /**
-   * @return a CompilerInput that can be modified to add addition extern
-   * definitions;
+   * @return a CompilerInput that can be modified to add additional extern
+   * definitions to the beginning of the externs AST
    */
   abstract CompilerInput getSynthesizedExternsInput();
+
+  /**
+   * @return a CompilerInput that can be modified to add additional extern
+   * definitions to the end of the externs AST
+   */
+  abstract CompilerInput getSynthesizedExternsInputAtEnd();
 
   /**
    * @return a number in [0,1] range indicating an approximate progress of the
@@ -450,15 +439,14 @@ public abstract class AbstractCompiler implements SourceExcerptProvider {
    *
    * @param resourceName The name of the library. For example, if "base" is
    *     is specified, then we load js/base.js
-   * @param normalizeAndUniquifyNames Whether to normalize the library code and make
-   *     names unique.
-   * @return If new code was injected, returns the last expression node of the
+   * @param force Inject the library even if compiler options say not to.
+   * @return The last node of the most-recently-injected runtime library.
+   *     If new code was injected, this will be the last expression node of the
    *     library. If the caller needs to add additional code, they should add
-   *     it as the next sibling of this node. If new code was not injected,
-   *     returns null.
+   *     it as the next sibling of this node. If no runtime libraries have been
+   *     injected, then null is returned.
    */
-  abstract Node ensureLibraryInjected(String resourceName,
-      boolean normalizeAndUniquifyNames);
+  abstract Node ensureLibraryInjected(String resourceName, boolean force);
 
   /**
    * Sets the names of the properties defined in externs.

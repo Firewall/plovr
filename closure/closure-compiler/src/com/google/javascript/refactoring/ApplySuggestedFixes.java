@@ -19,6 +19,7 @@ package com.google.javascript.refactoring;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.base.Function;
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Multimaps;
@@ -48,6 +49,11 @@ public final class ApplySuggestedFixes {
       .compound(Ordering.natural().onResultOf(new Function<CodeReplacement, Integer>() {
         @Override public Integer apply(CodeReplacement replacement) {
           return replacement.getLength();
+        }
+      }))
+      .compound(Ordering.natural().onResultOf(new Function<CodeReplacement, String>() {
+        @Override public String apply(CodeReplacement replacement) {
+          return replacement.getSortKey();
         }
       }));
 
@@ -119,7 +125,7 @@ public final class ApplySuggestedFixes {
       lastIndex = replacement.getStartPosition() + replacement.getLength();
     }
     if (lastIndex <= code.length()) {
-      sb.append(code.substring(lastIndex));
+      sb.append(code, lastIndex, code.length());
     }
     return sb.toString();
   }
@@ -135,9 +141,11 @@ public final class ApplySuggestedFixes {
     for (CodeReplacement replacement : replacements) {
       if (replacement.getStartPosition() < start) {
         throw new IllegalArgumentException(
-            "Found overlap between code replacements!\n" + replacements);
+            "Found overlap between code replacements!\n" + Joiner.on("\n\n").join(replacements));
       }
       start = Math.max(start, replacement.getStartPosition() + replacement.getLength());
     }
   }
+
+  private ApplySuggestedFixes() {}
 }

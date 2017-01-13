@@ -47,7 +47,7 @@ import com.google.common.collect.Lists;
 
 /**
  * An object type with declared template types, such as
- * <code>Array<string></code>.
+ * {@code Array<string>}.
  *
  */
 public final class TemplatizedType extends ProxyObjectType {
@@ -68,7 +68,7 @@ public final class TemplatizedType extends ProxyObjectType {
         objectType.getTemplateTypeMap().getUnfilledTemplateKeys();
     ImmutableList.Builder<JSType> builder = ImmutableList.builder();
     for (TemplateType filledTemplateKey : filledTemplateKeys) {
-      builder.add(getTemplateTypeMap().getTemplateType(filledTemplateKey));
+      builder.add(getTemplateTypeMap().getResolvedTemplateType(filledTemplateKey));
     }
     this.templateTypes = builder.build();
 
@@ -119,13 +119,13 @@ public final class TemplatizedType extends ProxyObjectType {
 
   @Override
   public boolean isSubtype(JSType that) {
-    return isSubtype(that, ImplCache.create());
+    return isSubtype(that, ImplCache.create(), SubtypingMode.NORMAL);
   }
 
   @Override
   protected boolean isSubtype(JSType that,
-      ImplCache implicitImplCache) {
-    return isSubtypeHelper(this, that, implicitImplCache);
+      ImplCache implicitImplCache, SubtypingMode subtypingMode) {
+    return isSubtypeHelper(this, that, implicitImplCache, subtypingMode);
   }
 
   boolean wrapsSameRawType(JSType that) {
@@ -159,7 +159,7 @@ public final class TemplatizedType extends ProxyObjectType {
     Preconditions.checkNotNull(that);
 
     if (getTemplateTypeMap().checkEquivalenceHelper(
-        that.getTemplateTypeMap(), EquivalenceMethod.INVARIANT)) {
+        that.getTemplateTypeMap(), EquivalenceMethod.INVARIANT, SubtypingMode.NORMAL)) {
       return this;
     }
 

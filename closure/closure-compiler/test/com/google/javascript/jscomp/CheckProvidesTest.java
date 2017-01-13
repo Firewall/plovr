@@ -26,7 +26,7 @@ import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 public final class CheckProvidesTest extends Es6CompilerTestCase {
   @Override
   protected CompilerPass getProcessor(Compiler compiler) {
-    return new CheckProvides(compiler, CheckLevel.WARNING);
+    return new CheckProvides(compiler);
   }
 
   public void testIrrelevant() {
@@ -50,14 +50,14 @@ public final class CheckProvidesTest extends Es6CompilerTestCase {
 
   public void testMissingProvideEs6Class() {
     setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
-    String js = "class X {};";
+    String js = "goog.require('Y'); class X {};";
     String warning = "missing goog.provide('X')";
     test(js, js, null, MISSING_PROVIDE_WARNING, warning);
 
-    js = "var X = class {};";
+    js = "goog.require('Y'); var X = class {};";
     test(js, js, null, MISSING_PROVIDE_WARNING, warning);
 
-    js = "foo.bar.X = class {};";
+    js = "goog.require('Y'); foo.bar.X = class {};";
     warning = "missing goog.provide('foo.bar.X')";
     test(js, js, null, MISSING_PROVIDE_WARNING, warning);
   }
@@ -70,14 +70,14 @@ public final class CheckProvidesTest extends Es6CompilerTestCase {
   }
 
   public void testMissingGoogProvide(){
-    String[] js = new String[]{"/** @constructor */ X = function(){};"};
+    String[] js = new String[] {"goog.require('Y'); /** @constructor */ X = function(){};"};
     String warning = "missing goog.provide('X')";
     test(js, js, null, MISSING_PROVIDE_WARNING, warning);
   }
 
   public void testMissingGoogProvideWithNamespace(){
-    String[] js = new String[]{"goog = {}; " +
-                               "/** @constructor */ goog.X = function(){};"};
+    String[] js =
+        new String[] {"goog = {}; goog.require('Y'); /** @constructor */ goog.X = function(){};"};
     String warning = "missing goog.provide('goog.X')";
     test(js, js, null, MISSING_PROVIDE_WARNING, warning);
   }
@@ -89,10 +89,10 @@ public final class CheckProvidesTest extends Es6CompilerTestCase {
   }
 
   public void testGoogProvideInWrongFileShouldCreateWarning(){
-    String bad = "/** @constructor */ X = function(){};";
-    String good = "goog.provide('X'); goog.provide('Y');" +
-                  "/** @constructor */ X = function(){};" +
-                  "/** @constructor */ Y = function(){};";
+    String good = "goog.provide('X'); goog.provide('Y');"
+        + "/** @constructor */ X = function(){};"
+        + "/** @constructor */ Y = function(){};";
+    String bad = "goog.require('Z'); /** @constructor */ X = function(){};";
     String[] js = new String[] {good, bad};
     String warning = "missing goog.provide('X')";
     test(js, js, null, MISSING_PROVIDE_WARNING, warning);
@@ -112,6 +112,27 @@ public final class CheckProvidesTest extends Es6CompilerTestCase {
   public void testIgnorePrivatelyAnnotatedConstructor() {
     testSame("/** @private\n@constructor */ X = function(){};");
     testSame("/** @constructor\n@private */ X = function(){};");
+
+    testSameEs6("/** @private */ var X = class {};");
+    testSameEs6("/** @private */ let X = class {};");
+    testSameEs6("/** @private */ X = class {};");
+
+    testSameEs6("/** @private */ var X = class Y {};");
+    testSameEs6("/** @private */ let X = class Y {};");
+    testSameEs6("/** @private */ X = class Y {};");
+
+    testSameEs6("/** @private */ class X {}");
+  }
+
+  public void testIgnorePrivateByConventionConstructor() {
+    testSame("/** @constructor */ privateFn_ = function(){};");
+    testSame("/** @constructor */ privateFn_ = function(){};");
+
+    testSameEs6("var privateCls_ = class {};");
+    testSameEs6("let privateCls_ = class {};");
+    testSameEs6("privateCls_ = class {};");
+
+    testSameEs6("class privateCls_ {}");
   }
 
   public void testArrowFunction() {

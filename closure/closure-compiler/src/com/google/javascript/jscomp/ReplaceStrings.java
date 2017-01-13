@@ -27,7 +27,6 @@ import com.google.common.collect.Multimap;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TypeI;
 import com.google.javascript.rhino.TypeIRegistry;
 
@@ -66,7 +65,7 @@ class ReplaceStrings extends AbstractPostOrderCallback
   //
   private final Map<String, Config> functions = new HashMap<>();
   private final Multimap<String, String> methods = HashMultimap.create();
-  private final NameGenerator nameGenerator;
+  private final DefaultNameGenerator nameGenerator;
   private final Map<String, Result> results = new LinkedHashMap<>();
 
   /**
@@ -189,12 +188,12 @@ class ReplaceStrings extends AbstractPostOrderCallback
     // TODO(johnlenz): Determine if it is necessary to support ".call" or
     // ".apply".
     switch (n.getType()) {
-      case Token.NEW: // e.g. new Error('msg');
-      case Token.CALL: // e.g. Error('msg');
+      case NEW: // e.g. new Error('msg');
+      case CALL: // e.g. Error('msg');
         Node calledFn = n.getFirstChild();
 
         // Look for calls to static functions.
-        String name = calledFn.getQualifiedName();
+        String name = calledFn.getOriginalQualifiedName();
         if (name != null) {
           Config config = findMatching(name);
           if (config != null) {
@@ -208,8 +207,7 @@ class ReplaceStrings extends AbstractPostOrderCallback
           Node rhs = calledFn.getLastChild();
           if (rhs.isName() || rhs.isString()) {
             String methodName = rhs.getString();
-            String originalMethodName =
-                (String) rhs.getParent().getProp(Node.ORIGINALNAME_PROP);
+            String originalMethodName = rhs.getParent().getOriginalName();
             Collection<String> classes;
             if (originalMethodName != null) {
               classes = methods.get(originalMethodName);
@@ -282,7 +280,7 @@ class ReplaceStrings extends AbstractPostOrderCallback
       }
     } else {
       // Replace all parameters.
-      Node firstParam = n.getFirstChild().getNext();
+      Node firstParam = n.getSecondChild();
       for (Node arg = firstParam; arg != null; arg = arg.getNext()) {
         arg = replaceExpression(t, arg, n);
       }
@@ -303,12 +301,12 @@ class ReplaceStrings extends AbstractPostOrderCallback
     String key = null;
     String replacementString;
     switch (expr.getType()) {
-      case Token.STRING:
+      case STRING:
         key = expr.getString();
         replacementString = getReplacement(key);
         replacement = IR.string(replacementString);
         break;
-      case Token.ADD:
+      case ADD:
         StringBuilder keyBuilder = new StringBuilder();
         Node keyNode = IR.string("");
         replacement = buildReplacement(expr, keyNode, keyBuilder);
@@ -316,7 +314,7 @@ class ReplaceStrings extends AbstractPostOrderCallback
         replacementString = getReplacement(key);
         keyNode.setString(replacementString);
         break;
-      case Token.NAME:
+      case NAME:
         // If the referenced variable is a constant, use its value.
         Var var = t.getScope().getVar(expr.getString());
         if (var != null && var.isInferredConst()) {
@@ -339,6 +337,7 @@ class ReplaceStrings extends AbstractPostOrderCallback
     Preconditions.checkNotNull(replacementString);
     recordReplacement(key);
 
+    replacement.useSourceInfoIfMissingFromForTree(expr);
     parent.replaceChild(expr, replacement);
     compiler.reportCodeChange();
     return replacement;
@@ -385,12 +384,12 @@ class ReplaceStrings extends AbstractPostOrderCallback
   private Node buildReplacement(
       Node expr, Node prefix, StringBuilder keyBuilder) {
     switch (expr.getType()) {
-      case Token.ADD:
+      case ADD:
         Node left = expr.getFirstChild();
         Node right = left.getNext();
         prefix = buildReplacement(left, prefix, keyBuilder);
         return buildReplacement(right, prefix, keyBuilder);
-      case Token.STRING:
+      case STRING:
         keyBuilder.append(expr.getString());
         return prefix;
       default:
@@ -487,10 +486,11 @@ class ReplaceStrings extends AbstractPostOrderCallback
    * Use a name generate to create names so the names overlap with the names
    * used for variable and properties.
    */
-  private static NameGenerator createNameGenerator(Iterable<String> reserved) {
+  private static DefaultNameGenerator createNameGenerator(
+        Iterable<String> reserved) {
     final String namePrefix = "";
     final char[] reservedChars = new char[0];
-    return new NameGenerator(
+    return new DefaultNameGenerator(
         ImmutableSet.copyOf(reserved), namePrefix, reservedChars);
   }
 }

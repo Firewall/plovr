@@ -27,22 +27,10 @@ import com.google.javascript.rhino.Node;
  * {@link Es6ToEs3Converter} pass.
  */
 public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCompilerPass {
-  static final DiagnosticType NO_SUPERTYPE = DiagnosticType.error(
-      "JSC_NO_SUPERTYPE",
-      "The super keyword may only appear in classes with an extends clause.");
-
   private final AbstractCompiler compiler;
 
   public Es6ConvertSuper(AbstractCompiler compiler) {
     this.compiler = compiler;
-  }
-
-  private void checkClassSuperReferences(Node classNode) {
-    Node className = classNode.getFirstChild();
-    Node superClassName = className.getNext();
-    if (NodeUtil.referencesSuper(classNode) && superClassName.isEmpty()) {
-      compiler.report(JSError.make(classNode, NO_SUPERTYPE));
-    }
   }
 
   @Override
@@ -59,7 +47,6 @@ public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCom
       if (!hasConstructor) {
         addSyntheticConstructor(n);
       }
-      checkClassSuperReferences(n);
     }
     return true;
   }
@@ -72,7 +59,7 @@ public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCom
   }
 
   private void addSyntheticConstructor(Node classNode) {
-    Node superClass = classNode.getFirstChild().getNext();
+    Node superClass = classNode.getSecondChild();
     Node classMembers = classNode.getLastChild();
     Node memberDef;
     if (superClass.isEmpty()) {
@@ -116,18 +103,14 @@ public final class Es6ConvertSuper implements NodeTraversal.Callback, HotSwapCom
       return;
     }
     Node clazz = NodeUtil.getEnclosingClass(node);
-    if (clazz == null) {
-      compiler.report(JSError.make(node, NO_SUPERTYPE));
-      return;
-    }
-    if (NodeUtil.getClassNameNode(clazz) == null) {
+    if (NodeUtil.getNameNode(clazz) == null) {
       // Unnamed classes of the form:
       //   f(class extends D { ... });
       // will be rejected when the class is processed.
       return;
     }
 
-    Node superName = clazz.getFirstChild().getNext();
+    Node superName = clazz.getSecondChild();
     if (!superName.isQualifiedName()) {
       // This will be reported as an error in Es6ToEs3Converter.
       return;

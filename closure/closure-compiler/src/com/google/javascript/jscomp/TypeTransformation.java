@@ -101,7 +101,7 @@ class TypeTransformation {
    * A helper class for holding the information about the type variables
    * and the name variables in maprecord expressions
    */
-  private class NameResolver {
+  private static class NameResolver {
     ImmutableMap<String, JSType> typeVars;
     ImmutableMap<String, String> nameVars;
 
@@ -236,7 +236,7 @@ class TypeTransformation {
 
   private String getFunctionParameter(Node n, int i) {
     Preconditions.checkArgument(n.isFunction(), "Expected a function node, found %s", n);
-    return n.getChildAtIndex(1).getChildAtIndex(i).getString();
+    return n.getSecondChild().getChildAtIndex(i).getString();
   }
 
   private Node getFunctionBody(Node n) {
@@ -271,7 +271,7 @@ class TypeTransformation {
   private Node getComputedPropValue(Node n) {
     Preconditions.checkArgument(
         n.isComputedProp(), "Expected a computed property node, found %s", n);
-    return n.getChildAtIndex(1);
+    return n.getSecondChild();
   }
 
   private String getComputedPropName(Node n) {

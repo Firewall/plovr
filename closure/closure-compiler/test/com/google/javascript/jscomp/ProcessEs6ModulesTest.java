@@ -34,15 +34,17 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
 
   @Override
   public void setUp() {
-    setAcceptedLanguage(LanguageMode.ECMASCRIPT6);
-    enableAstValidation(true);
+    // ECMASCRIPT5 to trigger module processing after parsing.
+    setLanguage(LanguageMode.ECMASCRIPT6, LanguageMode.ECMASCRIPT5);
     runTypeCheckAfterProcessing = true;
   }
 
   @Override
   protected CompilerOptions getOptions() {
     CompilerOptions options = super.getOptions();
-    options.setLanguageOut(LanguageMode.ECMASCRIPT5); // Trigger module processing after parsing.
+    // ECMASCRIPT5 to Trigger module processing after parsing.
+    options.setLanguageOut(LanguageMode.ECMASCRIPT5);
+    options.setWarningLevel(DiagnosticGroups.LINT_CHECKS, CheckLevel.WARNING);
     return options;
   }
 
@@ -65,12 +67,15 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
     // Shared with ProcessCommonJSModulesTest.
     String fileName = test.getFilename() + ".js";
     ImmutableList<SourceFile> inputs =
-        ImmutableList.of(SourceFile.fromCode("other.js", ""), SourceFile.fromCode(fileName, input));
-    String fileoverview = "/** @fileoverview\n * @suppress {missingProvide|missingRequire}\n */";
+        ImmutableList.of(
+            SourceFile.fromCode("other.js", "goog.provide('module$other');"),
+            SourceFile.fromCode("yet_another.js", "goog.provide('module$yet_another');"),
+            SourceFile.fromCode(fileName, input));
     ImmutableList<SourceFile> expecteds =
         ImmutableList.of(
-            SourceFile.fromCode("other.js", ""),
-            SourceFile.fromCode(fileName, fileoverview + expected));
+            SourceFile.fromCode("other.js", "goog.provide('module$other');"),
+            SourceFile.fromCode("yet_another.js", "goog.provide('module$yet_another');"),
+            SourceFile.fromCode(fileName, expected));
     test.test(inputs, expecteds);
   }
 
@@ -78,13 +83,14 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
       CompilerTestCase test, ImmutableList<SourceFile> inputs, String expected) {
     ImmutableList<SourceFile> expecteds =
         ImmutableList.of(
-            SourceFile.fromCode("other.js", ""),
+            SourceFile.fromCode("other.js", "goog.provide('module$other');"),
             SourceFile.fromCode(test.getFilename() + ".js", expected));
     test.test(inputs, expecteds);
   }
 
   void testModules(String input, String expected) {
-    testModules(this, input, expected);
+    testModules(this, input,
+        "/** @fileoverview\n * @suppress {missingProvide|missingRequire}\n */" + expected);
   }
 
   private static void testModules(CompilerTestCase test, String input, DiagnosticType error) {
@@ -119,11 +125,10 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
   }
 
   public void testImport_missing() {
-    test(
-        "import name from 'module_does_not_exist'; use(name);",
-        null,
-        ES6ModuleLoader.LOAD_ERROR,
-        null);
+    setExpectParseWarningsThisTest();  // JSC_ES6_MODULE_LOAD_WARNING
+    testModules(
+        "import name from 'does_not_exist'; use(name);",
+        "goog.require('module$does_not_exist'); use(module$does_not_exist.default);");
   }
 
   public void testImportStar() {
@@ -424,6 +429,20 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
             "  useBaz(baz) {}",
             "}",
             "/** @const */ module$testcode.Foo = Foo$$module$testcode;"));
+
+    testModules(
+        LINE_JOINER.join(
+            "export class Foo {",
+            "  /** @param {/other.Baz} baz */",
+            "  useBaz(baz) {}",
+            "}"),
+        LINE_JOINER.join(
+            "goog.provide('module$testcode');",
+            "class Foo$$module$testcode {",
+            "  /** @param {module$other.Baz} baz */",
+            "  useBaz(baz) {}",
+            "}",
+            "/** @const */ module$testcode.Foo = Foo$$module$testcode;"));
   }
 
   public void testRenameTypedef() {
@@ -575,5 +594,76 @@ public final class ProcessEs6ModulesTest extends CompilerTestCase {
             "let {foo, bar} = goog.require('some.name.space');",
             "use(foo, bar);"),
         LHS_OF_GOOG_REQUIRE_MUST_BE_CONST);
+  }
+
+  public void testNamespaceImports() {
+    testModules(
+        LINE_JOINER.join(
+            "import Foo from 'goog:other.Foo';",
+            "use(Foo);"),
+        LINE_JOINER.join(
+            "goog.require('other.Foo');",
+            "use(other.Foo)"));
+    testModules(
+        LINE_JOINER.join(
+            "import {x, y} from 'goog:other.Foo';",
+            "use(x);",
+            "use(y);"),
+        LINE_JOINER.join(
+            "goog.require('other.Foo');",
+            "use(other.Foo.x); use(other.Foo.y);"));
+    testModules(
+        LINE_JOINER.join(
+            "import Foo from 'goog:other.Foo';",
+            "/** @type {Foo} */ var foo = new Foo();"),
+        LINE_JOINER.join(
+            "goog.require('other.Foo');",
+            "/** @type {other.Foo} */",
+            "var foo$$module$testcode = new other.Foo();"));
+
+    testModules("import * as Foo from 'goog:other.Foo';",
+        ProcessEs6Modules.NAMESPACE_IMPORT_CANNOT_USE_STAR);
+  }
+
+  public void testObjectDestructuringAndObjLitShorthand() {
+    testModules(
+        LINE_JOINER.join(
+            "import {f} from 'other';",
+            "const foo = 1;",
+            "const {a, b} = f({foo});",
+            "use(a, b);"),
+        LINE_JOINER.join(
+            "goog.require('module$other');",
+            "const foo$$module$testcode = 1;",
+            "const {",
+            "  a: a$$module$testcode,",
+            "  b: b$$module$testcode,",
+            "} = module$other.f({foo: foo$$module$testcode});",
+            "use(a$$module$testcode, b$$module$testcode);"));
+  }
+
+  public void testImportWithoutReferences() {
+    testModules("import 'other';", "goog.require('module$other');");
+    // GitHub issue #1819: https://github.com/google/closure-compiler/issues/1819
+    // Need to make sure the order of the goog.requires matches the order of the imports.
+    testModules(
+        "import 'other'; import 'yet_another';",
+        "goog.require('module$other'); goog.require('module$yet_another');");
+  }
+
+  public void testUselessUseStrict() {
+    setExpectParseWarningsThisTest();
+    testModules(LINE_JOINER.join(
+        "'use strict';",
+        "export default undefined;"),
+        LINE_JOINER.join(
+        "'use strict';",
+        "export default undefined;"));
+  }
+
+  public void testUseStrict_noWarning() {
+    testSame(LINE_JOINER.join(
+        "'use strict';",
+        "var x;"));
   }
 }

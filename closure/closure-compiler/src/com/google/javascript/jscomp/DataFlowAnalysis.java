@@ -28,7 +28,6 @@ import com.google.javascript.rhino.Node;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -370,6 +369,16 @@ abstract class DataFlowAnalysis<N, L extends LatticeElement> {
     }
 
     @Override
+    public boolean equals(Object o) {
+      if (o instanceof FlowState) {
+        FlowState<?> that = (FlowState<?>) o;
+        return that.in.equals(this.in)
+            && that.out.equals(this.out);
+      }
+      return false;
+    }
+
+    @Override
     public int hashCode() {
       return Objects.hash(in, out);
     }
@@ -516,6 +525,16 @@ abstract class DataFlowAnalysis<N, L extends LatticeElement> {
     }
 
     @Override
+    public boolean equals(Object o) {
+      if (o instanceof BranchedFlowState) {
+        BranchedFlowState<?> that = (BranchedFlowState<?>) o;
+        return that.in.equals(this.in)
+            && that.out.equals(this.out);
+      }
+      return false;
+    }
+
+    @Override
     public int hashCode() {
       return Objects.hash(in, out);
     }
@@ -557,8 +576,7 @@ abstract class DataFlowAnalysis<N, L extends LatticeElement> {
 
     // 1: Remove the exception name in CATCH which technically isn't local to
     //    begin with.
-    for (Iterator<Var> i = jsScope.getVars(); i.hasNext();) {
-      Var var = i.next();
+    for (Var var : jsScope.getVarIterable()) {
       if (var.getParentNode().isCatch() ||
           compiler.getCodingConvention().isExported(var.getName())) {
         escaped.add(var);

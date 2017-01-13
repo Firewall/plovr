@@ -53,6 +53,7 @@ SourceInfo.prototype.facing;
 
 /**
  * @interface
+ * @extends {EventTarget}
  * @see http://www.w3.org/TR/mediacapture-streams/#mediastreamtrack
  */
 function MediaStreamTrack() {}
@@ -84,6 +85,18 @@ MediaStreamTrack.prototype.label;
  * @type {boolean}
  */
 MediaStreamTrack.prototype.enabled;
+
+/**
+ * @type {boolean}
+ * @const
+ */
+MediaStreamTrack.prototype.muted;
+
+/**
+ * @type {boolean}
+ * @const
+ */
+MediaStreamTrack.prototype.remote;
 
 /**
  * @type {MediaStreamTrackState}
@@ -181,6 +194,11 @@ MediaStream.prototype.getAudioTracks = function() {};
 MediaStream.prototype.getVideoTracks = function() {};
 
 /**
+ * @return {!Array<!MediaStreamTrack>}
+ */
+MediaStream.prototype.getTracks = function() {};
+
+/**
  * @param {string} trackId
  * @return {MediaStreamTrack}
  */
@@ -197,14 +215,36 @@ MediaStream.prototype.addTrack = function(track) {};
 MediaStream.prototype.removeTrack = function(track) {};
 
 /**
+ * @return {!MediaStream}
+ */
+MediaStream.prototype.clone = function() {};
+
+/**
+ * @deprecated
  * @type {boolean}
  */
 MediaStream.prototype.ended;
 
 /**
+ * @deprecated
  * @type {?function(!Event)}
  */
 MediaStream.prototype.onended;
+
+/**
+ * @type {boolean}
+ */
+MediaStream.prototype.active;
+
+/**
+ * @type {?function(!Event)}
+ */
+MediaStream.prototype.onactive;
+
+/**
+ * @type {?function(!Event)}
+ */
+MediaStream.prototype.oninactive;
 
 /**
  * @type {?function(!MediaStreamTrackEvent)}
@@ -414,6 +454,47 @@ function MediaStreamEvent(type, eventInitDict) {}
  * @const
  */
 MediaStreamEvent.prototype.stream;
+
+/**
+ * @typedef {string}
+ * @see https://www.w3.org/TR/mediacapture-streams/#idl-def-MediaDeviceKind
+ * In WebIDL this is an enum with values 'audioinput', 'audiooutput', and
+ * 'videoinput', but there is no mechanism in Closure for describing a
+ * specialization of the string type.
+ */
+var MediaDeviceKind;
+
+/**
+ * @interface
+ */
+function MediaDeviceInfo() {}
+
+/** @const {string} */
+MediaDeviceInfo.prototype.deviceId;
+
+/** @const {!MediaDeviceKind} */
+MediaDeviceInfo.prototype.kind;
+
+/** @const {string} */
+MediaDeviceInfo.prototype.label;
+
+/** @const {string} */
+MediaDeviceInfo.prototype.groupId;
+
+/**
+ * @interface
+ * @extends {EventTarget}
+ * @see https://www.w3.org/TR/mediacapture-streams/#mediadevices
+ */
+function MediaDevices() {}
+
+/**
+ * @return {!Promise<!Array<!MediaDeviceInfo>>}
+ */
+MediaDevices.prototype.enumerateDevices = function() {};
+
+/** @const {!MediaDevices} */
+Navigator.prototype.mediaDevices;
 
 /**
  * @typedef {string}

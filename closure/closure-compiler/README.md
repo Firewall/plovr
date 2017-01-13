@@ -24,7 +24,23 @@ Note: The Closure Compiler requires [Java 7 or higher](http://www.java.com/).
 
 1. Download [Maven](http://maven.apache.org/download.cgi).
 
-2. Run `mvn -DskipTests` (omit the `-DskipTests` if you want to run all the
+2. Add sonatype snapshots repository to `~/.m2/settings.xml`:
+   ```
+   <profile>
+     <id>allow-snapshots</id>
+        <activation><activeByDefault>true</activeByDefault></activation>
+     <repositories>
+       <repository>
+         <id>snapshots-repo</id>
+         <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+         <releases><enabled>false</enabled></releases>
+         <snapshots><enabled>true</enabled></snapshots>
+       </repository>
+     </repositories>
+   </profile>
+   ```
+
+3. Run `mvn -DskipTests` (omit the `-DskipTests` if you want to run all the
 unit tests too).
 
     This will produce a jar file called `target/closure-compiler-1.0-SNAPSHOT.jar`.
@@ -32,20 +48,20 @@ unit tests too).
 ### Using [Eclipse](http://www.eclipse.org/)
 
 1. Download and open the [Eclipse IDE](http://www.eclipse.org/).
-2. Navigate to ```File > New > Project ...``` and create a Java Project. Give
+2. Navigate to `File > New > Project ...` and create a Java Project. Give
    the project a name.
-3. Select ```Create project from existing source``` and choose the root of the
+3. Select `Create project from existing source` and choose the root of the
    checked-out source tree as the existing directory.
-3. Navigate to the ```build.xml``` file. You will see all the build rules in
-   the Outline pane. Run the ```jar``` rule to build the compiler in
-   ```build/compiler.jar```.
+3. Navigate to the `build.xml` file. You will see all the build rules in
+   the Outline pane. Run the `jar` rule to build the compiler in
+   `build/compiler.jar`.
 
 ## Running
 
 On the command line, at the root of this project, type
 
 ```
-java -jar build/compiler.jar
+java -jar target/closure-compiler-1.0-SNAPSHOT.jar
 ```
 
 This starts the compiler in interactive mode. Type
@@ -87,7 +103,7 @@ You can also use minimatch-style globs.
 # Recursively include all js files in subdirs
 java -jar compiler.jar --js_output_file=out.js 'src/**.js'
 
-# Recursively include all js files in subdirs, exclusing test files.
+# Recursively include all js files in subdirs, excluding test files.
 # Use single-quotes, so that bash doesn't try to expand the '!'
 java -jar compiler.jar --js_output_file=out.js 'src/**.js' '!**_test.js'
 ```
@@ -114,7 +130,7 @@ will re-order the inputs automatically.
 1. Consult the [FAQ](https://github.com/google/closure-compiler/wiki/FAQ) to make sure that the behaviour you would like isn't specifically excluded (such as string inlining).
 2. Make sure someone hasn't requested the same thing. See the list of [known issues](https://github.com/google/closure-compiler/issues).
 3. Read up on [what type of feature requests are accepted](https://github.com/google/closure-compiler/wiki/FAQ#how-do-i-submit-a-feature-request-for-a-new-type-of-optimization).
-4. Submit your reqest as an issue.
+4. Submit your request as an issue.
 
 ### Submitting patches
 1. All contributors must sign a contributor license agreement (CLA).
@@ -241,7 +257,7 @@ options/arguments in your CUI application.</td>
 
   <tr>
     <td>Version</td>
-    <td>18.0</td>
+    <td>20.0</td>
   </tr>
 
   <tr>

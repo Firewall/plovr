@@ -42,9 +42,7 @@ package com.google.javascript.rhino.jstype;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.jstype.RecordTypeBuilder.RecordProperty;
 
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * A record (structural) type.
@@ -108,29 +106,6 @@ public class RecordType extends PrototypeObjectType {
   /** @return Is this synthesized for internal bookkeeping? */
   boolean isSynthetic() {
     return !declared;
-  }
-
-  boolean checkRecordEquivalenceHelper(RecordType otherRecord,
-      EquivalenceMethod eqMethod, EqCache eqCache) {
-
-    MatchStatus result = eqCache.checkCache(this, otherRecord);
-    if (result != null) {
-      return result.subtypeValue();
-    }
-    Set<String> keySet = getOwnPropertyNames();
-    Set<String> otherKeySet = otherRecord.getOwnPropertyNames();
-    if (!otherKeySet.equals(keySet)) {
-      return false;
-    }
-    for (String key : keySet) {
-      if (!otherRecord.getPropertyType(key).checkEquivalenceHelper(
-              getPropertyType(key), eqMethod, eqCache)) {
-        eqCache.updateCache(this, otherRecord, MatchStatus.NOT_MATCH);
-        return false;
-      }
-    }
-    eqCache.updateCache(this, otherRecord, MatchStatus.MATCH);
-    return true;
   }
 
   @Override
@@ -211,18 +186,6 @@ public class RecordType extends PrototypeObjectType {
     return greatestSubtype;
   }
 
-  /**
-   * get the map of properties to types covered in an object type
-   * @return a Map that maps the property's name to the property's type
-   */
-  public Map<String, JSType> getOwnPropertyTypeMap() {
-    Map<String, JSType> propTypeMap = new HashMap<>();
-    for (String name : this.getOwnPropertyNames()) {
-      propTypeMap.put(name, this.getPropertyType(name));
-    }
-    return propTypeMap;
-  }
-
   @Override
   public RecordType toMaybeRecordType() {
     return this;
@@ -235,19 +198,19 @@ public class RecordType extends PrototypeObjectType {
 
   @Override
   public boolean isSubtype(JSType that) {
-    return isSubtype(that, ImplCache.create());
+    return isSubtype(that, ImplCache.create(), SubtypingMode.NORMAL);
   }
 
   @Override
   protected boolean isSubtype(JSType that,
-      ImplCache implicitImplCache) {
-    if (JSType.isSubtypeHelper(this, that, implicitImplCache)) {
+      ImplCache implicitImplCache, SubtypingMode subtypingMode) {
+    if (JSType.isSubtypeHelper(this, that, implicitImplCache, subtypingMode)) {
       return true;
     }
 
     // Top of the record types is the empty record, or OBJECT_TYPE.
     if (registry.getNativeObjectType(
-            JSTypeNative.OBJECT_TYPE).isSubtype(that, implicitImplCache)) {
+            JSTypeNative.OBJECT_TYPE).isSubtype(that, implicitImplCache, subtypingMode)) {
       return true;
     }
 
@@ -258,27 +221,6 @@ public class RecordType extends PrototypeObjectType {
       return false;
     }
 
-    return RecordType.isSubtype(
-        this, that.toMaybeRecordType(), implicitImplCache);
-  }
-
-  /** Determines if typeA is a subtype of typeB */
-  static boolean isSubtype(ObjectType typeA, RecordType typeB,
-      ImplCache implicitImplCache) {
-    // typeA is a subtype of record type typeB iff:
-    // 1) typeA has all the properties declared in typeB.
-    // 2) And for each property of typeB, its type must be
-    //    a super type of the corresponding property of typeA.
-    for (String property : typeB.getOwnPropertyNames()) {
-      if (!typeA.hasProperty(property)) {
-        return false;
-      }
-      JSType propA = typeA.getPropertyType(property);
-      JSType propB = typeB.getPropertyType(property);
-      if (!propA.isSubtype(propB, implicitImplCache)) {
-        return false;
-      }
-    }
-    return true;
+    return this.isStructuralSubtype(that.toMaybeRecordType(), implicitImplCache, subtypingMode);
   }
 }

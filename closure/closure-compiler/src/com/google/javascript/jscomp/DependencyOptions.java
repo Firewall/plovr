@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.base.MoreObjects.toStringHelper;
+
 import java.io.Serializable;
 import java.util.Collection;
 import java.util.HashSet;
@@ -41,8 +43,7 @@ public final class DependencyOptions implements Serializable {
   private boolean sortDependencies = false;
   private boolean pruneDependencies = false;
   private boolean dropMoochers = false;
-  private boolean es6ModuleOrder = false;
-  private final Set<String> entryPoints = new HashSet<>();
+  private final Set<ModuleIdentifier> entryPoints = new HashSet<>();
 
   /**
    * Enables or disables dependency sorting mode.
@@ -71,19 +72,6 @@ public final class DependencyOptions implements Serializable {
    */
   public DependencyOptions setDependencyPruning(boolean enabled) {
     this.pruneDependencies = enabled;
-    return this;
-  }
-
-  /**
-   * Enables or disables ES6 module style ordering.
-   *
-   * This ordering differs from classic ordering in that inputs are sorted
-   * using a depth first instead of breadth first graph traversal and circular
-   * references are allowed.
-   * @return this for easy building.
-   */
-  public DependencyOptions setEs6ModuleOrder(boolean es6ModuleOrder) {
-    this.es6ModuleOrder = es6ModuleOrder;
     return this;
   }
 
@@ -124,19 +112,15 @@ public final class DependencyOptions implements Serializable {
    *
    * @return this for easy chaining.
    */
-  public DependencyOptions setEntryPoints(Collection<String> symbols) {
+  public DependencyOptions setEntryPoints(Collection<ModuleIdentifier> symbols) {
     entryPoints.clear();
     entryPoints.addAll(symbols);
     return this;
   }
 
-  public boolean isEs6ModuleOrder() {
-    return es6ModuleOrder;
-  }
-
   /** Returns whether re-ordering of files is needed. */
   boolean needsManagement() {
-    return sortDependencies || pruneDependencies || es6ModuleOrder;
+    return sortDependencies || pruneDependencies;
   }
 
   boolean shouldSortDependencies() {
@@ -151,7 +135,17 @@ public final class DependencyOptions implements Serializable {
     return pruneDependencies && dropMoochers;
   }
 
-  Collection<String> getEntryPoints() {
+  Collection<ModuleIdentifier> getEntryPoints() {
     return entryPoints;
+  }
+
+  @Override
+  public String toString() {
+    return toStringHelper(this)
+        .add("sortDependencies", sortDependencies)
+        .add("pruneDependencies", pruneDependencies)
+        .add("dropMoochers", dropMoochers)
+        .add("entryPoints", entryPoints)
+        .toString();
   }
 }

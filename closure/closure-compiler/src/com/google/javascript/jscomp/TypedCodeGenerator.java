@@ -35,6 +35,7 @@ import java.util.TreeSet;
  */
 class TypedCodeGenerator extends CodeGenerator {
   private final TypeIRegistry registry;
+
   TypedCodeGenerator(
       CodeConsumer consumer, CompilerOptions options, TypeIRegistry registry) {
     super(consumer, options);
@@ -43,7 +44,7 @@ class TypedCodeGenerator extends CodeGenerator {
   }
 
   @Override
-  void add(Node n, Context context) {
+  protected void add(Node n, Context context) {
     Node parent = n.getParent();
     if (parent != null
         && (parent.isBlock()
@@ -52,11 +53,20 @@ class TypedCodeGenerator extends CodeGenerator {
         add(getFunctionAnnotation(n));
       } else if (n.isExprResult()
           && n.getFirstChild().isAssign()) {
-        Node rhs = n.getFirstChild().getLastChild();
-        add(getTypeAnnotation(rhs));
+        Node assign = n.getFirstChild();
+        if (NodeUtil.isNamespaceDecl(assign.getFirstChild())) {
+          add(JSDocInfoPrinter.print(assign.getJSDocInfo()));
+        } else {
+          Node rhs = assign.getLastChild();
+          add(getTypeAnnotation(rhs));
+        }
       } else if (n.isVar()
-          && n.getFirstChild().getFirstChild() != null) {
-        add(getTypeAnnotation(n.getFirstChild().getFirstChild()));
+          && n.getFirstFirstChild() != null) {
+        if (NodeUtil.isNamespaceDecl(n.getFirstChild())) {
+          add(JSDocInfoPrinter.print(n.getJSDocInfo()));
+        } else {
+          add(getTypeAnnotation(n.getFirstFirstChild()));
+        }
       }
     }
 
@@ -110,6 +120,7 @@ class TypedCodeGenerator extends CodeGenerator {
     StringBuilder sb = new StringBuilder("/**\n");
 
 
+    Node paramNode = null;
     // We need to use the child nodes of the function as the nodes for the
     // parameters of the function type do not have the real parameter names.
     // FUNCTION
@@ -117,21 +128,22 @@ class TypedCodeGenerator extends CodeGenerator {
     //   LP
     //     NAME param1
     //     NAME param2
-    if (fnNode != null) {
-      Node paramNode = NodeUtil.getFunctionParameters(fnNode).getFirstChild();
+    if (fnNode != null && fnNode.isFunction()) {
+      paramNode = NodeUtil.getFunctionParameters(fnNode).getFirstChild();
+    }
 
-      // Param types
-      for (Node n : funType.getParameters()) {
-        // Bail out if the paramNode is not there.
-        if (paramNode == null) {
-          break;
-        }
-        sb.append(" * ");
-        appendAnnotation(sb, "param", getParameterNodeJSDocType(n));
-        sb.append(" ")
-            .append(paramNode.getString())
-            .append("\n");
+    // Param types
+    int i = 0;
+    for (Node n : funType.getParameters()) {
+      sb.append(" * ");
+      appendAnnotation(sb, "param", getParameterNodeJSDocType(n));
+      sb.append(" ")
+          .append(paramNode == null ? "p" + i : paramNode.getString())
+          .append("\n");
+      if (paramNode != null) {
         paramNode = paramNode.getNext();
+      } else {
+        i++;
       }
     }
 
@@ -142,7 +154,7 @@ class TypedCodeGenerator extends CodeGenerator {
         !funType.isInterface() && // Interfaces never return a value.
         !(funType.isConstructor() && retType.isVoidType())) {
       sb.append(" * ");
-      appendAnnotation(sb, "return", retType.toAnnotationString());
+      appendAnnotation(sb, "return", retType.toNonNullAnnotationString());
       sb.append("\n");
     }
 
@@ -182,6 +194,8 @@ class TypedCodeGenerator extends CodeGenerator {
 
       if (funType.isConstructor()) {
         sb.append(" * @constructor\n");
+      } else if (funType.isStructuralInterface()) {
+        sb.append(" * @record\n");
       } else if (funType.isInterface()) {
         sb.append(" * @interface\n");
       }
@@ -211,13 +225,13 @@ class TypedCodeGenerator extends CodeGenerator {
     String typeString;
 
     if (parameterNode.isOptionalArg()) {
-      typeString = restrictByUndefined(parameterType).toAnnotationString() +
+      typeString = restrictByUndefined(parameterType).toNonNullAnnotationString() +
           "=";
     } else if (parameterNode.isVarArgs()) {
       typeString = "..." +
-          restrictByUndefined(parameterType).toAnnotationString();
+          restrictByUndefined(parameterType).toNonNullAnnotationString();
     } else {
-      typeString = parameterType.toAnnotationString();
+      typeString = parameterType.toNonNullAnnotationString();
     }
 
     return typeString;

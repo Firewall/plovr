@@ -16,7 +16,7 @@
 
 /**
  * @fileoverview Definitions for ECMAScript 5.
- * @see http://www.ecma-international.org/publications/files/drafts/tc39-2009-025.pdf
+ * @see https://es5.github.io/
  * @externs
  */
 
@@ -68,16 +68,17 @@ String.prototype.trimRight = function() {};
  *
  * Note: not a real constructor.
  * @constructor
+ * @template THIS
  */
 function ObjectPropertyDescriptor() {}
 
 /** @type {*} */
 ObjectPropertyDescriptor.prototype.value;
 
-/** @type {(function():?)|undefined} */
+/** @type {(function(this: THIS):?)|undefined} */
 ObjectPropertyDescriptor.prototype.get;
 
-/** @type {(function(?):void)|undefined} */
+/** @type {(function(this: THIS, ?):void)|undefined} */
 ObjectPropertyDescriptor.prototype.set;
 
 /** @type {boolean|undefined} */
@@ -211,10 +212,10 @@ Object.isFrozen = function(obj) {};
 
 
 /**
- * As per ECMAScript 5, 15.12.3.
  * @param {string=} opt_key The JSON key for this object.
  * @return {*} The serializable representation of this object. Note that this
  *     need not be a string. See http://goo.gl/PEUvs.
+ * @see https://es5.github.io/#x15.12.3
  */
 Object.prototype.toJSON = function(opt_key) {};
 
@@ -246,7 +247,6 @@ function JSONType() {}
  * @param {(function(string, *) : *)=} opt_reviver
  * @return {*} The JSON object.
  * @throws {Error}
- * @nosideeffects
  */
 JSONType.prototype.parse = function(jsonStr, opt_reviver) {};
 
@@ -257,7 +257,6 @@ JSONType.prototype.parse = function(jsonStr, opt_reviver) {};
  * @param {(number|string)=} opt_space
  * @return {string} JSON string which represents jsonObj.
  * @throws {Error}
- * @nosideeffects
  */
 JSONType.prototype.stringify = function(jsonObj, opt_replacer, opt_space) {};
 

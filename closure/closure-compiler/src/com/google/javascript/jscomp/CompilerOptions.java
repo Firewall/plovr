@@ -17,12 +17,14 @@
 package com.google.javascript.jscomp;
 
 import com.google.common.annotations.GwtIncompatible;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
+import com.google.javascript.jscomp.parsing.Config;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.SourcePosition;
@@ -40,10 +42,8 @@ import java.util.Set;
  * @author nicksantos@google.com (Nick Santos)
  */
 public class CompilerOptions {
-
-  // Unused. For people using reflection to circumvent access control.
-  @SuppressWarnings("unused")
-  private boolean manageClosureDependencies = false;
+  // The number of characters after which we insert a line break in the code
+  static final int DEFAULT_LINE_LENGTH_THRESHOLD = 500;
 
   /**
    * A common enum for compiler passes that can run either globally or locally.
@@ -56,13 +56,6 @@ public class CompilerOptions {
 
   // TODO(nicksantos): All public properties of this class should be made
   // package-private, and have a public setter.
-
-  /**
-   * The warning classes that are available.
-   */
-  protected DiagnosticGroups getDiagnosticGroups() {
-    return new DiagnosticGroups();
-  }
 
   /**
    * The JavaScript language version accepted.
@@ -94,9 +87,13 @@ public class CompilerOptions {
   }
 
   /**
-   * Whether the compiler accepts type syntax ({@code var foo: string;}).
+   * Sets the input sourcemap files, indexed by the JS files they refer to.
+   *
+   * @param inputSourceMaps the collection of input sourcemap files
    */
-  boolean acceptTypeSyntax;
+  public void setInputSourceMaps(final ImmutableMap<String, SourceMapInput> inputSourceMaps) {
+    this.inputSourceMaps = inputSourceMaps;
+  }
 
   /**
    * Whether to infer consts. This should not be configurable by
@@ -119,30 +116,48 @@ public class CompilerOptions {
    */
   private boolean assumeStrictThis;
 
+  private boolean allowHotswapReplaceScript = false;
+  private boolean preserveDetailedSourceInfo = false;
+  private boolean continueAfterErrors = false;
+
   /**
-   * Configures the compiler for use as an IDE backend.  In this mode:
-   * <ul>
-   *  <li>No optimization passes will run.</li>
-   *  <li>The last time custom passes are invoked is
-   *      {@link CustomPassExecutionTime#BEFORE_OPTIMIZATIONS}</li>
-   *  <li>The compiler will always try to process all inputs fully, even
-   *      if it encounters errors.</li>
-   *  <li>The compiler may record more information than is strictly
-   *      needed for codegen.</li>
-   * </ul>
+   * Whether the compiler should generate an output file that represents the type-only interface
+   * of the code being compiled.  This is useful for incremental type checking.
    */
-  public boolean ideMode;
+  private boolean generateTypedExterns;
 
-  private boolean parseJsDocDocumentation = false;
-  private boolean preserveJsDocWhitespace = false;
+  public void setIncrementalTypeChecking(boolean value) {
+    generateTypedExterns = value;
+    if (value) {
+      setPreserveTypeAnnotations(value);
+      setOutputJs(OutputJs.NORMAL);
+    }
+  }
+
+  public boolean shouldGenerateTypedExterns() {
+    return generateTypedExterns;
+  }
+
+  private Config.JsDocParsing parseJsDocDocumentation = Config.JsDocParsing.TYPES_ONLY;
 
   /**
-   * Even if checkTypes is disabled, clients might want to still infer types.
-   * This is mostly used when ideMode is enabled.
+   * Even if checkTypes is disabled, clients such as IDEs might want to still infer types.
    */
   boolean inferTypes;
 
-  boolean useNewTypeInference;
+  private boolean useNewTypeInference;
+
+  private boolean runOTIAfterNTI = true;
+
+  /**
+   * Relevant only when {@link #useNewTypeInference} and {@link #runOTIAfterNTI} are both true,
+   * where we normally disable OTI errors.
+   * If you want both NTI and OTI errors in this case, set to true.
+   * E.g. if using using a warnings guard to filter NTI or OTI warnings in new or legacy code,
+   * respectively.
+   * This will be removed when NTI entirely replaces OTI.
+   */
+  boolean reportOTIErrorsUnderNTI = false;
 
   /**
    * Configures the compiler to skip as many passes as possible.
@@ -195,24 +210,6 @@ public class CompilerOptions {
     reportMissingOverride = level;
   }
 
-  /**
-   * Deprecated. Use
-   * {@code setWarningLevel(DiagnosticGroups.MISSING_REQUIRE, CheckLevel.WARNING);}
-   * or
-   * {@code setWarningLevel(DiagnosticGroups.MISSING_REQUIRE, CheckLevel.ERROR);}
-   */
-  @Deprecated
-  public void setCheckRequires(CheckLevel level) {
-    setWarningLevel(DiagnosticGroups.MISSING_REQUIRE, level);
-  }
-
-  public CheckLevel checkProvides;
-
-  /** Checks for missing goog.provides() calls **/
-  public void setCheckProvides(CheckLevel level) {
-    checkProvides = level;
-  }
-
   public CheckLevel checkGlobalNamesLevel;
 
   /**
@@ -223,9 +220,14 @@ public class CompilerOptions {
     checkGlobalNamesLevel = level;
   }
 
+  @Deprecated
   public CheckLevel brokenClosureRequiresLevel;
 
-  /** Sets the check level for bad Closure require calls. */
+  /**
+   * Sets the check level for bad Closure require calls.
+   * Do not use; this should always be an error.
+   */
+  @Deprecated
   public void setBrokenClosureRequiresLevel(CheckLevel level) {
     brokenClosureRequiresLevel = level;
   }
@@ -267,24 +269,57 @@ public class CompilerOptions {
   Set<String> extraAnnotationNames;
 
   /**
+   * Policies to determine the disposal checking level.
+   */
+  public enum DisposalCheckingPolicy {
+    /**
+     * Don't check any disposal.
+     */
+    OFF,
+
+    /**
+     * Default/conservative disposal checking.
+     */
+    ON,
+
+    /**
+     * Aggressive disposal checking.
+     */
+    AGGRESSIVE,
+  }
+
+  /**
    * Check for patterns that are known to cause memory leaks.
    */
-  CheckEventfulObjectDisposal.DisposalCheckingPolicy checkEventfulObjectDisposalPolicy;
+  DisposalCheckingPolicy checkEventfulObjectDisposalPolicy;
 
-  public void setCheckEventfulObjectDisposalPolicy(
-      CheckEventfulObjectDisposal.DisposalCheckingPolicy policy) {
+  public void setCheckEventfulObjectDisposalPolicy(DisposalCheckingPolicy policy) {
     this.checkEventfulObjectDisposalPolicy = policy;
 
     // The CheckEventfulObjectDisposal pass requires types so enable inferring types if
     // this pass is enabled.
-    if (policy != CheckEventfulObjectDisposal.DisposalCheckingPolicy.OFF) {
+    if (policy != DisposalCheckingPolicy.OFF) {
       this.inferTypes = true;
     }
   }
-  public CheckEventfulObjectDisposal.DisposalCheckingPolicy getCheckEventfulObjectDisposalPolicy() {
+  public DisposalCheckingPolicy getCheckEventfulObjectDisposalPolicy() {
     return checkEventfulObjectDisposalPolicy;
   }
 
+  /**
+   * Used for projects that are not well maintained, but are still used.
+   * Does not allow promoting warnings to errors, and disables some potentially
+   * risky optimizations.
+   */
+  boolean legacyCodeCompile = false;
+
+  public boolean getLegacyCodeCompile() {
+    return this.legacyCodeCompile;
+  }
+
+  public void setLegacyCodeCompile(boolean legacy) {
+    this.legacyCodeCompile = legacy;
+  }
 
   //--------------------------------
   // Optimizations
@@ -319,7 +354,7 @@ public class CompilerOptions {
   boolean assumeClosuresOnlyCaptureReferences;
 
   /** Inlines properties */
-  boolean inlineProperties;
+  private boolean inlineProperties;
 
   /** Move code to a deeper module */
   public boolean crossModuleCodeMotion;
@@ -348,7 +383,7 @@ public class CompilerOptions {
   public boolean crossModuleMethodMotion;
 
   /** Inlines trivial getters */
-  public boolean inlineGetters;
+  boolean inlineGetters;
 
   /** Inlines variables */
   public boolean inlineVariables;
@@ -368,13 +403,6 @@ public class CompilerOptions {
 
   /** Removes code that will never execute */
   public boolean removeDeadCode;
-
-  public CheckLevel checkMissingReturn;
-
-  /** Checks for missing return statements */
-  public void setCheckMissingReturn(CheckLevel level) {
-    this.checkMissingReturn = level;
-  }
 
   public enum ExtractPrototypeMemberDeclarationsMode {
     OFF,
@@ -436,7 +464,7 @@ public class CompilerOptions {
   /** Print string usage as part of the compilation log. */
   boolean outputJsStringUsage;
 
-  /** Converts quoted property accesses to dot syntax (a['b'] -> a.b) */
+  /** Converts quoted property accesses to dot syntax (a['b'] &rarr; a.b) */
   public boolean convertToDottedProperties;
 
   /** Reduces the size of common function expressions. */
@@ -464,6 +492,9 @@ public class CompilerOptions {
 
   /** Chains calls to functions that return this. */
   boolean chainCalls;
+
+  /** Use type information to enable additional optimization opportunities. */
+  boolean useTypesForOptimization;
 
   //--------------------------------
   // Renaming
@@ -553,10 +584,10 @@ public class CompilerOptions {
    * Rename properties to disambiguate between unrelated fields based on
    * type information.
    */
-  public boolean disambiguateProperties;
+  private boolean disambiguateProperties;
 
   /** Rename unrelated properties to the same name to reduce code size. */
-  public boolean ambiguateProperties;
+  private boolean ambiguateProperties;
 
   /** Input sourcemap files, indexed by the JS files they refer to */
   ImmutableMap<String, SourceMapInput> inputSourceMaps;
@@ -589,6 +620,13 @@ public class CompilerOptions {
   /** Whether to declare globals declared in externs as properties on window */
   boolean declaredGlobalExternsOnWindow;
 
+  /** Shared name generator */
+  NameGenerator nameGenerator;
+
+  public void setNameGenerator(NameGenerator nameGenerator) {
+    this.nameGenerator = nameGenerator;
+  }
+
   //--------------------------------
   // Special-purpose alterations
   //--------------------------------
@@ -603,11 +641,11 @@ public class CompilerOptions {
   public void setReplaceMessagesWithChromeI18n(
       boolean replaceMessagesWithChromeI18n,
       String tcProjectId) {
-    if (replaceMessagesWithChromeI18n &&
-        messageBundle != null &&
-        !(messageBundle instanceof EmptyMessageBundle)) {
-      throw new RuntimeException("When replacing messages with " +
-          "chrome.i18n.getMessage, a message bundle should not be specified.");
+    if (replaceMessagesWithChromeI18n
+        && messageBundle != null
+        && !(messageBundle instanceof EmptyMessageBundle)) {
+    throw new RuntimeException("When replacing messages with"
+          + " chrome.i18n.getMessage, a message bundle should not be specified.");
     }
 
     this.replaceMessagesWithChromeI18n = replaceMessagesWithChromeI18n;
@@ -640,8 +678,8 @@ public class CompilerOptions {
   /** Processes goog.provide() and goog.require() calls */
   public boolean closurePass;
 
-  /** Do not strip goog.require() calls from the code. */
-  public boolean preserveGoogRequires;
+  /** Do not strip goog.provide()/goog.require() calls from the code. */
+  private boolean preserveGoogProvidesAndRequires;
 
   /** Processes jQuery aliases */
   public boolean jqueryPass;
@@ -654,6 +692,9 @@ public class CompilerOptions {
 
   /** Processes the output of the Dart Dev Compiler */
   boolean dartPass;
+
+  /** Processes the output of J2CL */
+  boolean j2clPass;
 
   /** Remove goog.abstractMethod assignments. */
   boolean removeAbstractMethods;
@@ -711,9 +752,24 @@ public class CompilerOptions {
   /** Record function information */
   public boolean recordFunctionInformation;
 
-  public boolean checksOnly;
+  boolean checksOnly;
+
+  static enum OutputJs {
+    // Don't output anything.
+    NONE,
+    // Output a "sentinel" file containing just a comment.
+    SENTINEL,
+    // Output the compiled JS.
+    NORMAL,
+  }
+  OutputJs outputJs;
 
   public boolean generateExports;
+
+  // TODO(dimvar): generate-exports should always run after typechecking.
+  // If it runs before, it adds a bunch of properties to Object, which masks
+  // many type warnings. Cleanup all clients and remove this.
+  boolean generateExportsAfterTypeChecking;
 
   boolean exportLocalPropertyDefinitions;
 
@@ -731,6 +787,9 @@ public class CompilerOptions {
 
   /** Id generators to replace. */
   ImmutableMap<String, RenamingMap> idGenerators;
+
+  /** Hash function to use for xid generation. */
+  Xid.HashFunction xidHashFunction;
 
   /**
    * A previous map of ids (serialized to a string by a previous compile).
@@ -760,6 +819,15 @@ public class CompilerOptions {
   /** CommonJS module prefix. */
   List<String> moduleRoots = ImmutableList.of(ES6ModuleLoader.DEFAULT_FILENAME_PREFIX);
 
+  /** Rewrite polyfills. */
+  boolean rewritePolyfills = false;
+
+  /** Runtime libraries to always inject. */
+  List<String> forceLibraryInjection = ImmutableList.of();
+
+  /** Runtime libraries to never inject. */
+  boolean preventLibraryInjection = false;
+
 
   //--------------------------------
   // Output options
@@ -782,6 +850,9 @@ public class CompilerOptions {
 
   /** The string to use as the separator for printInputDelimiter */
   public String inputDelimiter = "// Input %num%";
+
+  /** Whether to write keyword properties as foo['class'] instead of foo.class; needed for IE8. */
+  boolean quoteKeywordProperties;
 
   boolean preferSingleQuotes;
 
@@ -808,6 +879,13 @@ public class CompilerOptions {
 
   String reportPath;
 
+  // Should only be used when debugging compiler bugs using small JS inputs.
+  boolean printSourceAfterEachPass;
+
+  public void setPrintSourceAfterEachPass(boolean printSource) {
+    this.printSourceAfterEachPass = printSource;
+  }
+
   /** Where to save a report of global name usage */
   public void setReportPath(String reportPath) {
     this.reportPath = reportPath;
@@ -831,7 +909,13 @@ public class CompilerOptions {
 
   int summaryDetailLevel = 1;
 
-  int lineLengthThreshold = CodePrinter.DEFAULT_LINE_LENGTH_THRESHOLD;
+  int lineLengthThreshold = DEFAULT_LINE_LENGTH_THRESHOLD;
+
+  /**
+   * Whether to use the original names of nodes in the code output. This option is only really
+   * useful when using the compiler to print code meant to check in to source.
+   */
+  boolean useOriginalNamesInOutput = false;
 
   //--------------------------------
   // Special Output Options
@@ -845,20 +929,6 @@ public class CompilerOptions {
 
   /** The output path for the created externs file. */
   String externExportsPath;
-
-  String nameReferenceReportPath;
-
-  /** Where to save a cross-reference report from the name reference graph */
-  public void setNameReferenceReportPath(String filePath) {
-    nameReferenceReportPath = filePath;
-  }
-
-  String nameReferenceGraphPath;
-
-  /** Where to save the name reference graph */
-  public void setNameReferenceGraphPath(String filePath) {
-    nameReferenceGraphPath = filePath;
-  }
 
   //--------------------------------
   // Debugging Options
@@ -886,10 +956,8 @@ public class CompilerOptions {
 
   /**
    * Charset to use when generating code.  If null, then output ASCII.
-   * This is a string because CompilerOptions used to be serializable.
-   * TODO(tbreisacher): Switch to java.nio.Charset.
    */
-  String outputCharset;
+  Charset outputCharset;
 
   /**
    * Transitional option.
@@ -929,6 +997,29 @@ public class CompilerOptions {
   private ImmutableList<ConformanceConfig> conformanceConfigs = ImmutableList.of();
 
   /**
+   * For use in {@value CompilationLevel#WHITESPACE_ONLY} mode, when using goog.module.
+   */
+  boolean wrapGoogModulesForWhitespaceOnly = true;
+
+  public void setWrapGoogModulesForWhitespaceOnly(boolean enable) {
+    this.wrapGoogModulesForWhitespaceOnly = enable;
+  }
+
+  /**
+   * Print all configuration options to stderr after the compiler is initialized.
+   */
+  boolean printConfig = false;
+
+  /**
+   * Should the compiler print its configuration options to stderr when they are initialized?
+   *
+   * <p> Default {@code false}.
+   */
+  public void setPrintConfig(boolean printConfig) {
+    this.printConfig = printConfig;
+  }
+
+  /**
    * Initializes compiler options. All options are disabled by default.
    *
    * Command-line frontends to the compiler should set these properties
@@ -942,9 +1033,6 @@ public class CompilerOptions {
     // Which environment to use
     environment = Environment.BROWSER;
 
-    // Language variation
-    acceptTypeSyntax = false;
-
     // Checks
     skipNonTranspilationPasses = false;
     devMode = DevMode.OFF;
@@ -953,17 +1041,15 @@ public class CompilerOptions {
     checkSuspiciousCode = false;
     checkTypes = false;
     reportMissingOverride = CheckLevel.OFF;
-    checkProvides = CheckLevel.OFF;
     checkGlobalNamesLevel = CheckLevel.OFF;
     brokenClosureRequiresLevel = CheckLevel.ERROR;
     checkGlobalThisLevel = CheckLevel.OFF;
-    checkMissingReturn = CheckLevel.OFF;
     checkMissingGetCssNameLevel = CheckLevel.OFF;
     checkMissingGetCssNameBlacklist = null;
     computeFunctionSideEffects = false;
     chainCalls = false;
     extraAnnotationNames = null;
-    checkEventfulObjectDisposalPolicy = CheckEventfulObjectDisposal.DisposalCheckingPolicy.OFF;
+    checkEventfulObjectDisposalPolicy = DisposalCheckingPolicy.OFF;
 
     // Optimizations
     foldConstants = false;
@@ -1020,6 +1106,7 @@ public class CompilerOptions {
     anonymousFunctionNaming = AnonymousFunctionNamingPolicy.OFF;
     exportTestFunctions = false;
     declaredGlobalExternsOnWindow = true;
+    nameGenerator = new DefaultNameGenerator();
 
     // Alterations
     runtimeTypeCheck = false;
@@ -1029,11 +1116,12 @@ public class CompilerOptions {
     locale = null;
     markAsCompiled = false;
     closurePass = false;
-    preserveGoogRequires = false;
+    preserveGoogProvidesAndRequires = false;
     jqueryPass = false;
     angularPass = false;
     polymerPass = false;
     dartPass = false;
+    j2clPass = false;
     removeAbstractMethods = true;
     removeClosureAsserts = false;
     stripTypes = Collections.emptySet();
@@ -1049,7 +1137,9 @@ public class CompilerOptions {
     appNameStr = "";
     recordFunctionInformation = false;
     checksOnly = false;
+    outputJs = OutputJs.NORMAL;
     generateExports = false;
+    generateExportsAfterTypeChecking = true;
     exportLocalPropertyDefinitions = false;
     cssRenamingMap = null;
     cssRenamingWhitelist = null;
@@ -1078,12 +1168,11 @@ public class CompilerOptions {
     errorFormat = ErrorFormat.SINGLELINE;
     debugFunctionSideEffectsPath = null;
     externExports = false;
-    nameReferenceReportPath = null;
-    nameReferenceGraphPath = null;
 
     // Debugging
     aliasHandler = NULL_ALIAS_TRANSFORMATION_HANDLER;
     errorHandler = null;
+    printSourceAfterEachPass = false;
     useDebugLog = false;
   }
 
@@ -1159,7 +1248,7 @@ public class CompilerOptions {
    * to a boolean literal.
    */
   public void setDefineToBooleanLiteral(String defineName, boolean value) {
-    defineReplacements.put(defineName, new Boolean(value));
+    defineReplacements.put(defineName, value);
   }
 
   /**
@@ -1175,7 +1264,7 @@ public class CompilerOptions {
    * number literal.
    */
   public void setDefineToNumberLiteral(String defineName, int value) {
-    defineReplacements.put(defineName, new Integer(value));
+    defineReplacements.put(defineName, value);
   }
 
   /**
@@ -1183,7 +1272,7 @@ public class CompilerOptions {
    * number literal.
    */
   public void setDefineToDoubleLiteral(String defineName, double value) {
-    defineReplacements.put(defineName, new Double(value));
+    defineReplacements.put(defineName, value);
   }
 
   /**
@@ -1191,7 +1280,7 @@ public class CompilerOptions {
    * to a boolean literal.
    */
   public void setTweakToBooleanLiteral(String tweakId, boolean value) {
-    tweakReplacements.put(tweakId, new Boolean(value));
+    tweakReplacements.put(tweakId, value);
   }
 
   /**
@@ -1207,7 +1296,7 @@ public class CompilerOptions {
    * number literal.
    */
   public void setTweakToNumberLiteral(String tweakId, int value) {
-    tweakReplacements.put(tweakId, new Integer(value));
+    tweakReplacements.put(tweakId, value);
   }
 
   /**
@@ -1215,7 +1304,7 @@ public class CompilerOptions {
    * number literal.
    */
   public void setTweakToDoubleLiteral(String tweakId, double value) {
-    tweakReplacements.put(tweakId, new Double(value));
+    tweakReplacements.put(tweakId, value);
   }
 
   /**
@@ -1230,7 +1319,7 @@ public class CompilerOptions {
    * group of warnings.
    */
   boolean enables(DiagnosticGroup type) {
-    return warningsGuard.enables(type);
+    return this.warningsGuard.enables(type);
   }
 
   /**
@@ -1238,7 +1327,7 @@ public class CompilerOptions {
    * group of warnings.
    */
   boolean disables(DiagnosticGroup type) {
-    return warningsGuard.disables(type);
+    return this.warningsGuard.disables(type);
   }
 
   /**
@@ -1248,26 +1337,15 @@ public class CompilerOptions {
     addWarningsGuard(new DiagnosticGroupWarningsGuard(type, level));
   }
 
-  /**
-   * Configure the given type of warning to the given level.
-   */
-  public void setWarningLevel(String groupName, CheckLevel level) {
-    DiagnosticGroup type = getDiagnosticGroups().forName(groupName);
-    if (type == null) {
-      throw new RuntimeException("Unknown DiagnosticGroup name: " + groupName);
-    }
-    setWarningLevel(type, level);
-  }
-
   WarningsGuard getWarningsGuard() {
-    return warningsGuard;
+    return this.warningsGuard;
   }
 
   /**
    * Reset the warnings guard.
    */
   public void resetWarningsGuard() {
-    warningsGuard = new ComposeWarningsGuard();
+    this.warningsGuard = new ComposeWarningsGuard();
   }
 
   /**
@@ -1275,14 +1353,18 @@ public class CompilerOptions {
    * warnings guards.
    */
   void useEmergencyFailSafe() {
-    warningsGuard = warningsGuard.makeEmergencyFailSafeGuard();
+    this.warningsGuard = this.warningsGuard.makeEmergencyFailSafeGuard();
+  }
+
+  void useNonStrictWarningsGuard() {
+    this.warningsGuard = this.warningsGuard.makeNonStrict();
   }
 
   /**
    * Add a guard to the set of warnings guards.
    */
   public void addWarningsGuard(WarningsGuard guard) {
-    warningsGuard.addGuard(guard);
+    this.warningsGuard.addGuard(guard);
   }
 
   /**
@@ -1319,19 +1401,20 @@ public class CompilerOptions {
    * Sets the id generators to replace.
    */
   public void setIdGenerators(Set<String> idGenerators) {
+    RenamingMap gen = new UniqueRenamingToken();
     ImmutableMap.Builder<String, RenamingMap> builder = ImmutableMap.builder();
     for (String name : idGenerators) {
-       builder.put(name, UNIQUE_ID_GENERATOR);
+       builder.put(name, gen);
     }
     this.idGenerators = builder.build();
   }
 
   /**
-   * A renaming map instance to use to signal the use of the "inconsistent"
-   * id generator type.
+   * Sets the hash function to use for Xid
    */
-  public static final RenamingMap UNIQUE_ID_GENERATOR =
-      ReplaceIdGenerators.UNIQUE;
+  public void setXidHashFunction(Xid.HashFunction xidHashFunction) {
+    this.xidHashFunction = xidHashFunction;
+  }
 
   /**
    * Sets the id generators to replace.
@@ -1403,6 +1486,10 @@ public class CompilerOptions {
    */
   public void setInlineProperties(boolean enable) {
     inlineProperties = enable;
+  }
+
+  boolean shouldInlineProperties() {
+    return useTypesForOptimization || inlineProperties;
   }
 
   /**
@@ -1479,6 +1566,10 @@ public class CompilerOptions {
     this.checksOnly = checksOnly;
   }
 
+  void setOutputJs(OutputJs outputJs) {
+    this.outputJs = outputJs;
+  }
+
   public void setGenerateExports(boolean generateExports) {
     this.generateExports = generateExports;
   }
@@ -1499,6 +1590,13 @@ public class CompilerOptions {
     this.dartPass = dartPass;
   }
 
+  public void setJ2clPass(boolean j2clPass) {
+    this.j2clPass = j2clPass;
+    if (j2clPass) {
+      setWarningLevel(DiagnosticGroup.forType(SourceFile.DUPLICATE_ZIP_CONTENTS), CheckLevel.OFF);
+    }
+  }
+
   public void setCodingConvention(CodingConvention codingConvention) {
     this.codingConvention = codingConvention;
   }
@@ -1512,7 +1610,6 @@ public class CompilerOptions {
    * This supersedes manageClosureDependencies.
    */
   public void setDependencyOptions(DependencyOptions options) {
-    Preconditions.checkNotNull(options);
     this.dependencyOptions = options;
   }
 
@@ -1530,7 +1627,6 @@ public class CompilerOptions {
     dependencyOptions.setDependencyPruning(
         newVal || dependencyOptions.shouldPruneDependencies());
     dependencyOptions.setMoocherDropping(false);
-    manageClosureDependencies = newVal;
   }
 
   /**
@@ -1545,7 +1641,14 @@ public class CompilerOptions {
   public void setManageClosureDependencies(List<String> entryPoints) {
     Preconditions.checkNotNull(entryPoints);
     setManageClosureDependencies(true);
-    dependencyOptions.setEntryPoints(entryPoints);
+
+    List<ModuleIdentifier> normalizedEntryPoints = new ArrayList<>();
+
+    for (String entryPoint : entryPoints) {
+      normalizedEntryPoints.add(ModuleIdentifier.forClosure(entryPoint));
+    }
+
+    dependencyOptions.setEntryPoints(normalizedEntryPoints);
   }
 
   /**
@@ -1576,17 +1679,17 @@ public class CompilerOptions {
   }
 
   /**
-   * Sets the output charset by name.
+   * Sets the output charset.
    */
-  public void setOutputCharset(String charsetName) {
+  public void setOutputCharset(Charset charsetName) {
     this.outputCharset = charsetName;
   }
 
   /**
-   * Gets the output charset as a rich object.
+   * Gets the output charset.
    */
   Charset getOutputCharset() {
-    return outputCharset == null ? null : Charset.forName(outputCharset);
+    return outputCharset;
   }
 
   /**
@@ -1615,9 +1718,7 @@ public class CompilerOptions {
    */
   public void setLanguageIn(LanguageMode languageIn) {
     Preconditions.checkState(languageIn != LanguageMode.NO_TRANSPILE);
-    Preconditions.checkNotNull(dependencyOptions);
     this.languageIn = languageIn;
-    dependencyOptions.setEs6ModuleOrder(languageIn.isEs6OrHigher());
   }
 
   public LanguageMode getLanguageIn() {
@@ -1630,6 +1731,9 @@ public class CompilerOptions {
    */
   public void setLanguageOut(LanguageMode languageOut) {
     this.languageOut = languageOut;
+    if (languageOut == LanguageMode.ECMASCRIPT3) {
+      this.quoteKeywordProperties = true;
+    }
   }
 
   public LanguageMode getLanguageOut() {
@@ -1710,14 +1814,27 @@ public class CompilerOptions {
   }
 
   public boolean getNewTypeInference() {
-    return useNewTypeInference;
+    return this.useNewTypeInference;
   }
 
   public void setNewTypeInference(boolean enable) {
-    useNewTypeInference = enable;
+    this.useNewTypeInference = enable;
   }
 
-  /**
+  public boolean getRunOTIAfterNTI() {
+    return this.runOTIAfterNTI;
+  }
+
+  public void setRunOTIAfterNTI(boolean enable) {
+    this.runOTIAfterNTI = enable;
+  }
+
+  // Not dead code; used by the open-source users of the compiler.
+  public void setReportOTIErrorsUnderNTI(boolean enable) {
+    this.reportOTIErrorsUnderNTI = enable;
+  }
+
+/**
    * @return Whether assumeStrictThis is set.
    */
   public boolean assumeStrictThis() {
@@ -1756,18 +1873,76 @@ public class CompilerOptions {
          ImmutableMap.copyOf(propertyInvalidationErrors);
   }
 
+  /**
+   * Configures the compiler for use as an IDE backend.  In this mode:
+   * <ul>
+   *  <li>No optimization passes will run.</li>
+   *  <li>The last time custom passes are invoked is
+   *      {@link CustomPassExecutionTime#BEFORE_OPTIMIZATIONS}</li>
+   *  <li>The compiler will always try to process all inputs fully, even
+   *      if it encounters errors.</li>
+   *  <li>The compiler may record more information than is strictly
+   *      needed for codegen.</li>
+   * </ul>
+   *
+   * @deprecated Some "IDE" clients will need some of these options but not
+   * others. Consider calling setChecksOnly, setAllowRecompilation, etc,
+   * explicitly, instead of calling this method which does a variety of
+   * different things.
+   */
+  @Deprecated
   public void setIdeMode(boolean ideMode) {
-    this.ideMode = ideMode;
+    setChecksOnly(ideMode);
+    setContinueAfterErrors(ideMode);
+    setAllowHotswapReplaceScript(ideMode);
+    setPreserveDetailedSourceInfo(ideMode);
+    setParseJsDocDocumentation(
+        ideMode
+            ? Config.JsDocParsing.INCLUDE_DESCRIPTIONS_NO_WHITESPACE
+            : Config.JsDocParsing.TYPES_ONLY);
+  }
+
+  public void setAllowHotswapReplaceScript(boolean allowRecompilation) {
+    this.allowHotswapReplaceScript = allowRecompilation;
+  }
+
+  boolean allowsHotswapReplaceScript() {
+    return allowHotswapReplaceScript;
+  }
+
+  public void setPreserveDetailedSourceInfo(boolean preserveDetailedSourceInfo) {
+    this.preserveDetailedSourceInfo = preserveDetailedSourceInfo;
+  }
+
+  boolean preservesDetailedSourceInfo() {
+    return preserveDetailedSourceInfo;
+  }
+
+  public void setContinueAfterErrors(boolean continueAfterErrors) {
+    this.continueAfterErrors = continueAfterErrors;
+  }
+
+  boolean canContinueAfterErrors() {
+    return continueAfterErrors;
+  }
+
+
+  @Deprecated
+  public void setParseJsDocDocumentation(boolean parseJsDocDocumentation) {
+    setParseJsDocDocumentation(
+        parseJsDocDocumentation
+            ? Config.JsDocParsing.INCLUDE_DESCRIPTIONS_NO_WHITESPACE
+            : Config.JsDocParsing.TYPES_ONLY);
   }
 
   /**
-   * Enables or disables the parsing of JSDoc documentation. When IDE mode is
-   * enabled then documentation is always parsed.
+   * Enables or disables the parsing of JSDoc documentation, and optionally also
+   * the preservation of all whitespace and formatting within a JSDoc comment.
+   * By default, whitespace is collapsed for all comments except {@literal @license} and
+   * {@literal @preserve} blocks,
    *
-   * @param parseJsDocDocumentation
-   *           True to enable JSDoc documentation parsing, false to disable it.
    */
-  public void setParseJsDocDocumentation(boolean parseJsDocDocumentation) {
+  public void setParseJsDocDocumentation(Config.JsDocParsing parseJsDocDocumentation) {
     this.parseJsDocDocumentation = parseJsDocDocumentation;
   }
 
@@ -1776,35 +1951,14 @@ public class CompilerOptions {
    *
    * @return True when JSDoc documentation will be parsed, false if not.
    */
-  public boolean isParseJsDocDocumentation() {
-    return this.ideMode || this.parseJsDocDocumentation;
+  public Config.JsDocParsing isParseJsDocDocumentation() {
+    return this.parseJsDocDocumentation;
   }
 
   /**
-   * Enables or disables the preservation of all whitespace and formatting within a JSDoc
-   * comment. By default, whitespace is collapsed for all comments except @license and
-   * @preserve blocks,
-   *
-   * <p>Setting this option has no effect if {@link #isParseJsDocDocumentation()}
-   * returns false.
-   *
-   * @param preserveJsDocWhitespace
-   *           True to preserve whitespace in text extracted from JSDoc comments.
-   */
-  public void setPreserveJsDocWhitespace(boolean preserveJsDocWhitespace) {
-    this.preserveJsDocWhitespace = preserveJsDocWhitespace;
-  }
-
-  /**
-   * @return Whether to preserve whitespace in all text extracted from JSDoc comments.
-   */
-  public boolean isPreserveJsDocWhitespace() {
-    return preserveJsDocWhitespace;
-  }
-
-  /**
-   * Skip all passes (other than transpilation, if requested). Don't inject es6_runtime.js
-   * or do any checks/optimizations (this is useful for per-file transpilation).
+   * Skip all passes (other than transpilation, if requested). Don't inject any
+   * runtime libraries (unless explicitly requested) or do any checks/optimizations
+   * (this is useful for per-file transpilation).
    */
   public void setSkipNonTranspilationPasses(boolean skipNonTranspilationPasses) {
     this.skipNonTranspilationPasses = skipNonTranspilationPasses;
@@ -1888,10 +2042,6 @@ public class CompilerOptions {
     this.crossModuleMethodMotion = crossModuleMethodMotion;
   }
 
-  public void setInlineGetters(boolean inlineGetters) {
-    this.inlineGetters = inlineGetters;
-  }
-
   public void setInlineVariables(boolean inlineVariables) {
     this.inlineVariables = inlineVariables;
   }
@@ -1930,6 +2080,9 @@ public class CompilerOptions {
 
   public void setRemoveUnusedPrototypeProperties(boolean enabled) {
     this.removeUnusedPrototypeProperties = enabled;
+    // InlineSimpleMethods makes similar assumptions to
+    // RemoveUnusedPrototypeProperties, so they are enabled together.
+    this.inlineGetters = enabled;
   }
 
   public void setRemoveUnusedPrototypePropertiesInExterns(boolean enabled) {
@@ -1970,6 +2123,10 @@ public class CompilerOptions {
 
   public void setConvertToDottedProperties(boolean convertToDottedProperties) {
     this.convertToDottedProperties = convertToDottedProperties;
+  }
+
+  public void setUseTypesForOptimization(boolean useTypesForOptimization) {
+    this.useTypesForOptimization = useTypesForOptimization;
   }
 
   public void setRewriteFunctionExpressions(boolean rewriteFunctionExpressions) {
@@ -2063,8 +2220,16 @@ public class CompilerOptions {
     this.disambiguateProperties = disambiguateProperties;
   }
 
+  boolean shouldDisambiguateProperties() {
+    return this.useTypesForOptimization || this.disambiguateProperties;
+  }
+
   public void setAmbiguateProperties(boolean ambiguateProperties) {
     this.ambiguateProperties = ambiguateProperties;
+  }
+
+  boolean shouldAmbiguateProperties() {
+    return this.useTypesForOptimization || this.ambiguateProperties;
   }
 
   public void setAnonymousFunctionNaming(
@@ -2116,8 +2281,17 @@ public class CompilerOptions {
     this.closurePass = closurePass;
   }
 
-  public void setPreserveGoogRequires(boolean preserveGoogRequires) {
-    this.preserveGoogRequires = preserveGoogRequires;
+  @Deprecated
+  public void setPreserveGoogRequires(boolean preserveGoogProvidesAndRequires) {
+    setPreserveGoogProvidesAndRequires(preserveGoogProvidesAndRequires);
+  }
+
+  public void setPreserveGoogProvidesAndRequires(boolean preserveGoogProvidesAndRequires) {
+    this.preserveGoogProvidesAndRequires = preserveGoogProvidesAndRequires;
+  }
+
+  public boolean shouldPreservesGoogProvidesAndRequires() {
+    return this.preserveGoogProvidesAndRequires || this.shouldGenerateTypedExterns();
   }
 
   public void setPreserveTypeAnnotations(boolean preserveTypeAnnotations) {
@@ -2233,6 +2407,10 @@ public class CompilerOptions {
     this.inputDelimiter = inputDelimiter;
   }
 
+  public void setQuoteKeywordProperties(boolean quoteKeywordProperties) {
+    this.quoteKeywordProperties = quoteKeywordProperties;
+  }
+
   public void setErrorFormat(ErrorFormat errorFormat) {
     this.errorFormat = errorFormat;
   }
@@ -2251,6 +2429,14 @@ public class CompilerOptions {
 
   public int getLineLengthThreshold() {
     return this.lineLengthThreshold;
+  }
+
+  public void setUseOriginalNamesInOutput(boolean useOriginalNamesInOutput) {
+    this.useOriginalNamesInOutput = useOriginalNamesInOutput;
+  }
+
+  public boolean getUseOriginalNamesInOutput() {
+    return this.useOriginalNamesInOutput;
   }
 
   public void setExternExports(boolean externExports) {
@@ -2311,6 +2497,27 @@ public class CompilerOptions {
   }
 
   /**
+   * Sets whether to rewrite polyfills.
+   */
+  public void setRewritePolyfills(boolean rewritePolyfills) {
+    this.rewritePolyfills = rewritePolyfills;
+  }
+
+  /**
+   * Sets list of libraries to always inject, even if not needed.
+   */
+  public void setForceLibraryInjection(Iterable<String> libraries) {
+    this.forceLibraryInjection = ImmutableList.copyOf(libraries);
+  }
+
+  /**
+   * Sets the set of libraries to never inject, even if required.
+   */
+  public void setPreventLibraryInjection(boolean preventLibraryInjection) {
+    this.preventLibraryInjection = preventLibraryInjection;
+  }
+
+  /**
    * Set whether or not code should be modified to provide coverage
    * information.
    */
@@ -2336,6 +2543,209 @@ public class CompilerOptions {
   @GwtIncompatible("Conformance")
   public void setConformanceConfigs(List<ConformanceConfig> configs) {
     this.conformanceConfigs = ImmutableList.copyOf(configs);
+  }
+
+  @Override
+  public String toString() {
+    String strValue =
+        MoreObjects.toStringHelper(this)
+            .omitNullValues()
+            .add("aggressiveFusion", aggressiveFusion)
+            .add("aliasableStrings", aliasableStrings)
+            .add("aliasAllStrings", aliasAllStrings)
+            .add("aliasHandler", getAliasTransformationHandler())
+            .add("aliasStringsBlacklist", aliasStringsBlacklist)
+            .add("allowHotswapReplaceScript", allowsHotswapReplaceScript())
+            .add("ambiguateProperties", ambiguateProperties)
+            .add("angularPass", angularPass)
+            .add("anonymousFunctionNaming", anonymousFunctionNaming)
+            .add("appNameStr", appNameStr)
+            .add("assumeClosuresOnlyCaptureReferences", assumeClosuresOnlyCaptureReferences)
+            .add("assumeStrictThis", assumeStrictThis())
+            .add("brokenClosureRequiresLevel", brokenClosureRequiresLevel)
+            .add("chainCalls", chainCalls)
+            .add("checkDeterminism", getCheckDeterminism())
+            .add("checkEventfulObjectDisposalPolicy", checkEventfulObjectDisposalPolicy)
+            .add("checkGlobalNamesLevel", checkGlobalNamesLevel)
+            .add("checkGlobalThisLevel", checkGlobalThisLevel)
+            .add("checkMissingGetCssNameBlacklist", checkMissingGetCssNameBlacklist)
+            .add("checkMissingGetCssNameLevel", checkMissingGetCssNameLevel)
+            .add("checksOnly", checksOnly)
+            .add("checkSuspiciousCode", checkSuspiciousCode)
+            .add("checkSymbols", checkSymbols)
+            .add("checkTypes", checkTypes)
+            .add("closurePass", closurePass)
+            .add("coalesceVariableNames", coalesceVariableNames)
+            .add("codingConvention", getCodingConvention())
+            .add("collapseAnonymousFunctions", collapseAnonymousFunctions)
+            .add("collapseObjectLiterals", collapseObjectLiterals)
+            .add("collapseProperties", collapseProperties)
+            .add("collapseVariableDeclarations", collapseVariableDeclarations)
+            .add("colorizeErrorOutput", shouldColorizeErrorOutput())
+            .add("computeFunctionSideEffects", computeFunctionSideEffects)
+            .add("conformanceConfigs", getConformanceConfigs())
+            .add("continueAfterErrors", canContinueAfterErrors())
+            .add("convertToDottedProperties", convertToDottedProperties)
+            .add("crossModuleCodeMotion", crossModuleCodeMotion)
+            .add("crossModuleCodeMotionNoStubMethods", crossModuleCodeMotionNoStubMethods)
+            .add("crossModuleMethodMotion", crossModuleMethodMotion)
+            .add("cssRenamingMap", cssRenamingMap)
+            .add("cssRenamingWhitelist", cssRenamingWhitelist)
+            .add("customPasses", customPasses)
+            .add("dartPass", dartPass)
+            .add("deadAssignmentElimination", deadAssignmentElimination)
+            .add("debugFunctionSideEffectsPath", debugFunctionSideEffectsPath)
+            .add("declaredGlobalExternsOnWindow", declaredGlobalExternsOnWindow)
+            .add("defineReplacements", getDefineReplacements())
+            .add("dependencyOptions", dependencyOptions)
+            .add("devirtualizePrototypeMethods", devirtualizePrototypeMethods)
+            .add("devMode", devMode)
+            .add("disambiguatePrivateProperties", disambiguatePrivateProperties)
+            .add("disambiguateProperties", disambiguateProperties)
+            .add("enforceAccessControlCodingConventions", enforceAccessControlCodingConventions)
+            .add("environment", getEnvironment())
+            .add("errorFormat", errorFormat)
+            .add("errorHandler", errorHandler)
+            .add("exportLocalPropertyDefinitions", exportLocalPropertyDefinitions)
+            .add("exportTestFunctions", exportTestFunctions)
+            .add("externExports", isExternExportsEnabled())
+            .add("externExportsPath", externExportsPath)
+            .add("extraAnnotationNames", extraAnnotationNames)
+            .add("extractPrototypeMemberDeclarations", extractPrototypeMemberDeclarations)
+            .add("extraSmartNameRemoval", extraSmartNameRemoval)
+            .add("flowSensitiveInlineVariables", flowSensitiveInlineVariables)
+            .add("foldConstants", foldConstants)
+            .add("forceLibraryInjection", forceLibraryInjection)
+            .add("gatherCssNames", gatherCssNames)
+            .add("generateExportsAfterTypeChecking", generateExportsAfterTypeChecking)
+            .add("generateExports", generateExports)
+            .add("generatePseudoNames", generatePseudoNames)
+            .add("generateTypedExterns", shouldGenerateTypedExterns())
+            .add("idGenerators", idGenerators)
+            .add("idGeneratorsMapSerialized", idGeneratorsMapSerialized)
+            .add("inferConsts", inferConsts)
+            .add("inferTypes", inferTypes)
+            .add("inlineConstantVars", inlineConstantVars)
+            .add("inlineFunctions", inlineFunctions)
+            .add("inlineGetters", inlineGetters)
+            .add("inlineLocalFunctions", inlineLocalFunctions)
+            .add("inlineLocalVariables", inlineLocalVariables)
+            .add("inlineProperties", inlineProperties)
+            .add("inlineVariables", inlineVariables)
+            .add("inputAnonymousFunctionNamingMap", inputAnonymousFunctionNamingMap)
+            .add("inputDelimiter", inputDelimiter)
+            .add("inputPropertyMap", inputPropertyMap)
+            .add("inputSourceMaps", inputSourceMaps)
+            .add("inputVariableMap", inputVariableMap)
+            .add("instrumentationTemplateFile", instrumentationTemplateFile)
+            .add("instrumentationTemplate", instrumentationTemplate)
+            .add("instrumentForCoverage", instrumentForCoverage)
+            .add("j2clPass", j2clPass)
+            .add("jqueryPass", jqueryPass)
+            .add("labelRenaming", labelRenaming)
+            .add("languageIn", getLanguageIn())
+            .add("languageOut", getLanguageOut())
+            .add("legacyCodeCompile", legacyCodeCompile)
+            .add("lineBreak", lineBreak)
+            .add("lineLengthThreshold", lineLengthThreshold)
+            .add("locale", locale)
+            .add("markAsCompiled", markAsCompiled)
+            .add("markNoSideEffectCalls", markNoSideEffectCalls)
+            .add("maxFunctionSizeAfterInlining", maxFunctionSizeAfterInlining)
+            .add("messageBundle", messageBundle)
+            .add("moduleRoots", moduleRoots)
+            .add("moveFunctionDeclarations", moveFunctionDeclarations)
+            .add("nameGenerator", nameGenerator)
+            .add("optimizeArgumentsArray", optimizeArgumentsArray)
+            .add("optimizeCalls", optimizeCalls)
+            .add("optimizeParameters", optimizeParameters)
+            .add("optimizeReturns", optimizeReturns)
+            .add("outputCharset", outputCharset)
+            .add("outputJs", outputJs)
+            .add("outputJsStringUsage", outputJsStringUsage)
+            .add(
+                "parentModuleCanSeeSymbolsDeclaredInChildren",
+                parentModuleCanSeeSymbolsDeclaredInChildren)
+            .add("parseJsDocDocumentation", isParseJsDocDocumentation())
+            .add("polymerPass", polymerPass)
+            .add("preferLineBreakAtEndOfFile", preferLineBreakAtEndOfFile)
+            .add("preferSingleQuotes", preferSingleQuotes)
+            .add("preferStableNames", preferStableNames)
+            .add("preserveDetailedSourceInfo", preservesDetailedSourceInfo())
+            .add("preserveGoogProvidesAndRequires", preserveGoogProvidesAndRequires)
+            .add("preserveTypeAnnotations", preserveTypeAnnotations)
+            .add("prettyPrint", prettyPrint)
+            .add("preventLibraryInjection", preventLibraryInjection)
+            .add("printConfig", printConfig)
+            .add("printInputDelimiter", printInputDelimiter)
+            .add("printSourceAfterEachPass", printSourceAfterEachPass)
+            .add("processCommonJSModules", processCommonJSModules)
+            .add("processObjectPropertyString", processObjectPropertyString)
+            .add("propertyInvalidationErrors", propertyInvalidationErrors)
+            .add("propertyRenaming", propertyRenaming)
+            .add("protectHiddenSideEffects", protectHiddenSideEffects)
+            .add("quoteKeywordProperties", quoteKeywordProperties)
+            .add("recordFunctionInformation", recordFunctionInformation)
+            .add("removeAbstractMethods", removeAbstractMethods)
+            .add("removeClosureAsserts", removeClosureAsserts)
+            .add("removeDeadCode", removeDeadCode)
+            .add("removeUnusedClassProperties", removeUnusedClassProperties)
+            .add("removeUnusedConstructorProperties", removeUnusedConstructorProperties)
+            .add("removeUnusedLocalVars", removeUnusedLocalVars)
+            .add(
+                "removeUnusedPrototypePropertiesInExterns",
+                removeUnusedPrototypePropertiesInExterns)
+            .add("removeUnusedPrototypeProperties", removeUnusedPrototypeProperties)
+            .add("removeUnusedVars", removeUnusedVars)
+            .add(
+                "renamePrefixNamespaceAssumeCrossModuleNames",
+                renamePrefixNamespaceAssumeCrossModuleNames)
+            .add("renamePrefixNamespace", renamePrefixNamespace)
+            .add("renamePrefix", renamePrefix)
+            .add("replaceIdGenerators", replaceIdGenerators)
+            .add("replaceMessagesWithChromeI18n", replaceMessagesWithChromeI18n)
+            .add("replaceStringsFunctionDescriptions", replaceStringsFunctionDescriptions)
+            .add("replaceStringsInputMap", replaceStringsInputMap)
+            .add("replaceStringsPlaceholderToken", replaceStringsPlaceholderToken)
+            .add("replaceStringsReservedStrings", replaceStringsReservedStrings)
+            .add("reportMissingOverride", reportMissingOverride)
+            .add("reportOTIErrorsUnderNTI", reportOTIErrorsUnderNTI)
+            .add("reportPath", reportPath)
+            .add("reserveRawExports", reserveRawExports)
+            .add("rewriteFunctionExpressions", rewriteFunctionExpressions)
+            .add("rewritePolyfills", rewritePolyfills)
+            .add("runtimeTypeCheckLogFunction", runtimeTypeCheckLogFunction)
+            .add("runtimeTypeCheck", runtimeTypeCheck)
+            .add("shadowVariables", shadowVariables)
+            .add("skipNonTranspilationPasses", skipNonTranspilationPasses)
+            .add("skipTranspilationAndCrash", skipTranspilationAndCrash)
+            .add("smartNameRemoval", smartNameRemoval)
+            .add("sourceMapDetailLevel", sourceMapDetailLevel)
+            .add("sourceMapFormat", sourceMapFormat)
+            .add("sourceMapLocationMappings", sourceMapLocationMappings)
+            .add("sourceMapOutputPath", sourceMapOutputPath)
+            .add("stripNamePrefixes", stripNamePrefixes)
+            .add("stripNameSuffixes", stripNameSuffixes)
+            .add("stripTypePrefixes", stripTypePrefixes)
+            .add("stripTypes", stripTypes)
+            .add("summaryDetailLevel", summaryDetailLevel)
+            .add("syntheticBlockEndMarker", syntheticBlockEndMarker)
+            .add("syntheticBlockStartMarker", syntheticBlockStartMarker)
+            .add("tcProjectId", tcProjectId)
+            .add("tracer", tracer)
+            .add("transformAMDToCJSModules", transformAMDToCJSModules)
+            .add("trustedStrings", trustedStrings)
+            .add("tweakProcessing", getTweakProcessing())
+            .add("tweakReplacements", getTweakReplacements())
+            .add("useDebugLog", useDebugLog)
+            .add("useNewTypeInference", getNewTypeInference())
+            .add("useTypesForOptimization", useTypesForOptimization)
+            .add("variableRenaming", variableRenaming)
+            .add("warningsGuard", getWarningsGuard())
+            .add("wrapGoogModulesForWhitespaceOnly", wrapGoogModulesForWhitespaceOnly)
+            .toString();
+
+    return strValue;
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -2379,6 +2789,16 @@ public class CompilerOptions {
     ECMASCRIPT6_TYPED,
 
     /**
+     * A superset of ES6 which adds the exponent operator (**).
+     */
+    ECMASCRIPT7,
+
+    /**
+     * A superset of ES7 which adds async functions.
+     */
+    ECMASCRIPT8,
+
+    /**
      * For languageOut only. The same language mode as the input.
      */
     NO_TRANSPILE;
@@ -2387,6 +2807,8 @@ public class CompilerOptions {
     public boolean isStrict() {
       Preconditions.checkState(this != NO_TRANSPILE);
       switch (this) {
+        case ECMASCRIPT7:
+        case ECMASCRIPT8:
         case ECMASCRIPT5_STRICT:
         case ECMASCRIPT6_STRICT:
         case ECMASCRIPT6_TYPED:
@@ -2406,6 +2828,8 @@ public class CompilerOptions {
     public boolean isEs6OrHigher() {
       Preconditions.checkState(this != NO_TRANSPILE);
       switch (this) {
+        case ECMASCRIPT7:
+        case ECMASCRIPT8:
         case ECMASCRIPT6:
         case ECMASCRIPT6_STRICT:
         case ECMASCRIPT6_TYPED:
@@ -2438,6 +2862,12 @@ public class CompilerOptions {
         case "ECMASCRIPT6_TYPED":
         case "ES6_TYPED":
           return LanguageMode.ECMASCRIPT6_TYPED;
+        case "ECMASCRIPT7":
+        case "ES7":
+          return LanguageMode.ECMASCRIPT7;
+        case "ECMASCRIPT8":
+        case "ES8":
+          return LanguageMode.ECMASCRIPT8;
       }
       return null;
     }
@@ -2590,5 +3020,54 @@ public class CompilerOptions {
      * Only language externs are loaded.
      */
     CUSTOM
+  }
+
+  /**
+   * Whether standard input or standard output should be an array of
+   * JSON encoded files
+   */
+  static enum JsonStreamMode {
+    /**
+     * stdin/out are both single files.
+     */
+    NONE,
+
+    /**
+     * stdin is a json stream.
+     */
+    IN,
+
+    /**
+     * stdout is a json stream.
+     */
+    OUT,
+
+    /**
+     * stdin and stdout are both json streams.
+     */
+    BOTH
+  }
+
+  static enum DependencyMode {
+    /**
+     * All files will be included in the compilation
+     */
+    NONE,
+
+    /**
+     * Files must be discoverable from specified entry points. Files
+     * which do not goog.provide a namespace and and are not either
+     * an ES6 or CommonJS module will be automatically treated as entry points.
+     * Module files will be included only if referenced from an entry point.
+     */
+    LOOSE,
+
+    /**
+     * Files must be discoverable from specified entry points. Files which
+     * do not goog.provide a namespace and are neither
+     * an ES6 or CommonJS module will be dropped. Module files will be included
+     * only if referenced from an entry point.
+     */
+    STRICT
   }
 }

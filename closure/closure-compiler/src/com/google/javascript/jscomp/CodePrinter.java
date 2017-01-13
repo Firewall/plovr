@@ -36,10 +36,6 @@ import java.util.List;
  * @see CodeGenerator
  */
 public final class CodePrinter {
-  // The number of characters after which we insert a line break in the code
-  static final int DEFAULT_LINE_LENGTH_THRESHOLD = 500;
-
-
   // There are two separate CodeConsumers, one for pretty-printing and
   // another for compact printing.
 
@@ -298,7 +294,8 @@ public final class CodePrinter {
 
     @Override
     void appendBlockStart() {
-      append(" {");
+      maybeInsertSpace();
+      append("{");
       indent++;
     }
 
@@ -364,14 +361,16 @@ public final class CodePrinter {
 
     @Override
     void maybeInsertSpace() {
-      add(" ");
+      if (getLastChar() != ' ') {
+        add(" ");
+      }
     }
 
     /**
      * @return The TRY node for the specified CATCH node.
      */
     private static Node getTryForCatch(Node n) {
-      return n.getParent().getParent();
+      return n.getGrandparent();
     }
 
     /**
@@ -380,24 +379,24 @@ public final class CodePrinter {
      */
     @Override
     boolean breakAfterBlockFor(Node n,  boolean isStatementContext) {
-      Preconditions.checkState(n.isBlock());
+      Preconditions.checkState(n.isBlock(), n);
       Node parent = n.getParent();
       if (parent != null) {
-        int type = parent.getType();
+        Token type = parent.getType();
         switch (type) {
-          case Token.DO:
+          case DO:
             // Don't break before 'while' in DO-WHILE statements.
             return false;
-          case Token.FUNCTION:
+          case FUNCTION:
             // FUNCTIONs are handled separately, don't break here.
             return false;
-          case Token.TRY:
+          case TRY:
             // Don't break before catch
             return n != parent.getFirstChild();
-          case Token.CATCH:
+          case CATCH:
             // Don't break before finally
             return !NodeUtil.hasFinally(getTryForCatch(parent));
-          case Token.IF:
+          case IF:
             // Don't break before else
             return n == parent.getLastChild();
         }
@@ -648,6 +647,14 @@ public final class CodePrinter {
       return this;
     }
 
+    /**
+     * Set a custom code generator factory to enable custom code generation.
+     */
+    public Builder setCodeGeneratorFactory(CodeGeneratorFactory factory) {
+      this.codeGeneratorFactory = factory;
+      return this;
+    }
+
     public interface CodeGeneratorFactory {
       CodeGenerator getCodeGenerator(Format outputFormat, CodeConsumer cc);
     }
@@ -666,19 +673,22 @@ public final class CodePrinter {
     }
   }
 
-  enum Format {
+  /**
+   * Specifies a format for code generation.
+   */
+  public enum Format {
     COMPACT,
     PRETTY,
     TYPED;
 
     static Format fromOptions(CompilerOptions options, boolean outputTypes, boolean prettyPrint) {
-      if (options.getLanguageOut() == LanguageMode.ECMASCRIPT6_TYPED) {
-        return Format.PRETTY;
-      }
       if (outputTypes) {
         return Format.TYPED;
       }
-      return prettyPrint ? Format.PRETTY : Format.COMPACT;
+      if (prettyPrint || options.getLanguageOut() == LanguageMode.ECMASCRIPT6_TYPED) {
+        return Format.PRETTY;
+      }
+      return Format.COMPACT;
     }
   }
 
@@ -705,6 +715,7 @@ public final class CodePrinter {
             options.sourceMapDetailLevel);
     CodeGenerator cg = codeGeneratorFactory.getCodeGenerator(outputFormat, mcp);
 
+    cg.maybeTagAsExterns();
     if (tagAsStrict) {
       cg.tagAsStrict();
     }

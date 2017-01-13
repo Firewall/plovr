@@ -23,7 +23,6 @@ import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfoBuilder;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -41,15 +40,16 @@ class VarCheck extends AbstractPostOrderCallback implements
       "JSC_UNDEFINED_VARIABLE",
       "variable {0} is undeclared");
 
-  static final DiagnosticType VIOLATED_MODULE_DEP_ERROR = DiagnosticType.error(
-      "JSC_VIOLATED_MODULE_DEPENDENCY",
-      "module {0} cannot reference {2}, defined in " +
-      "module {1}, since {1} loads after {0}");
+  static final DiagnosticType VIOLATED_MODULE_DEP_ERROR =
+      DiagnosticType.error(
+          "JSC_VIOLATED_MODULE_DEPENDENCY",
+          "module {0} cannot reference {2}, defined in module {1}, since {1} loads after {0}");
 
-  static final DiagnosticType MISSING_MODULE_DEP_ERROR = DiagnosticType.warning(
-      "JSC_MISSING_MODULE_DEPENDENCY",
-      "missing module dependency; module {0} should depend " +
-      "on module {1} because it references {2}");
+  static final DiagnosticType MISSING_MODULE_DEP_ERROR =
+      DiagnosticType.warning(
+          "JSC_MISSING_MODULE_DEPENDENCY",
+          "missing module dependency; module {0} should depend"
+              + " on module {1} because it references {2}");
 
   static final DiagnosticType STRICT_MODULE_DEP_ERROR = DiagnosticType.disabled(
       "JSC_STRICT_MODULE_DEPENDENCY",
@@ -60,10 +60,10 @@ class VarCheck extends AbstractPostOrderCallback implements
       + "defined in module {1}, referenced from module {0}");
 
   static final DiagnosticType NAME_REFERENCE_IN_EXTERNS_ERROR =
-    DiagnosticType.warning(
-      "JSC_NAME_REFERENCE_IN_EXTERNS",
-      "accessing name {0} in externs has no effect. " +
-      "Perhaps you forgot to add a var keyword?");
+      DiagnosticType.warning(
+          "JSC_NAME_REFERENCE_IN_EXTERNS",
+          "accessing name {0} in externs has no effect."
+              + " Perhaps you forgot to add a var keyword?");
 
   static final DiagnosticType UNDEFINED_EXTERN_VAR_ERROR =
     DiagnosticType.warning(
@@ -80,10 +80,10 @@ class VarCheck extends AbstractPostOrderCallback implements
         "JSC_VAR_ARGUMENTS_SHADOWED_ERROR",
         "Shadowing \"arguments\" is not allowed");
 
-  static final DiagnosticType LET_CONST_MULTIPLY_DECLARED_ERROR =
+  static final DiagnosticType LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR =
       DiagnosticType.error(
-          "JSC_LET_CONST_MULTIPLY_DECLARED_ERROR",
-          "Duplicate let / const declaration in the same scope is not allowed.");
+          "JSC_LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR",
+          "Duplicate let / const / class declaration in the same scope is not allowed.");
 
   // The arguments variable is special, in that it's declared in every local
   // scope, but not explicitly declared.
@@ -159,86 +159,84 @@ class VarCheck extends AbstractPostOrderCallback implements
 
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
-    if (!n.isName()) {
-      return;
-    }
+    if (n.isName() || (n.isStringKey() && !n.hasChildren())) {
+      String varName = n.getString();
 
-    String varName = n.getString();
-
-    // Only a function can have an empty name.
-    if (varName.isEmpty()) {
-      Preconditions.checkState(parent.isFunction());
-      Preconditions.checkState(NodeUtil.isFunctionExpression(parent));
-      return;
-    }
-
-    // Check if this is a declaration for a var that has been declared
-    // elsewhere. If so, mark it as a duplicate.
-    if ((parent.isVar() ||
-         NodeUtil.isFunctionDeclaration(parent)) &&
-        varsToDeclareInExterns.contains(varName)) {
-      createSynthesizedExternVar(varName);
-
-      JSDocInfoBuilder builder = JSDocInfoBuilder.maybeCopyFrom(n.getJSDocInfo());
-      builder.addSuppression("duplicate");
-      n.setJSDocInfo(builder.build());
-    }
-
-    // Check that the var has been declared.
-    Scope scope = t.getScope();
-    Var var = scope.getVar(varName);
-    if (var == null) {
-      if (NodeUtil.isFunctionExpression(parent)) {
-        // e.g. [ function foo() {} ], it's okay if "foo" isn't defined in the
-        // current scope.
-      } else {
-        boolean isArguments = scope.isLocal() && ARGUMENTS.equals(varName);
-        // The extern checks are stricter, don't report a second error.
-        if (!isArguments && !(strictExternCheck && t.getInput().isExtern())) {
-          t.report(n, UNDEFINED_VAR_ERROR, varName);
-        }
-
-        if (sanityCheck) {
-          throw new IllegalStateException("Unexpected variable " + varName);
-        } else {
-          createSynthesizedExternVar(varName);
-          scope.getGlobalScope().declare(varName, n, compiler.getSynthesizedExternsInput());
-        }
+      // Only a function can have an empty name.
+      if (varName.isEmpty()) {
+        Preconditions.checkState(parent.isFunction());
+        Preconditions.checkState(NodeUtil.isFunctionExpression(parent));
+        return;
       }
-      return;
-    }
 
-    CompilerInput currInput = t.getInput();
-    CompilerInput varInput = var.input;
-    if (currInput == varInput || currInput == null || varInput == null) {
-      // The variable was defined in the same file. This is fine.
-      return;
-    }
+      // Check if this is a declaration for a var that has been declared
+      // elsewhere. If so, mark it as a duplicate.
+      if ((parent.isVar()
+           || NodeUtil.isFunctionDeclaration(parent))
+          && varsToDeclareInExterns.contains(varName)) {
+        createSynthesizedExternVar(varName);
 
-    // Check module dependencies.
-    JSModule currModule = currInput.getModule();
-    JSModule varModule = varInput.getModule();
-    JSModuleGraph moduleGraph = compiler.getModuleGraph();
-    if (!sanityCheck &&
-        varModule != currModule && varModule != null && currModule != null) {
-      if (moduleGraph.dependsOn(currModule, varModule)) {
-        // The module dependency was properly declared.
-      } else {
-        if (scope.isGlobal()) {
-          if (moduleGraph.dependsOn(varModule, currModule)) {
-            // The variable reference violates a declared module dependency.
-            t.report(n, VIOLATED_MODULE_DEP_ERROR,
-                     currModule.getName(), varModule.getName(), varName);
+        JSDocInfoBuilder builder = JSDocInfoBuilder.maybeCopyFrom(n.getJSDocInfo());
+        builder.addSuppression("duplicate");
+        n.setJSDocInfo(builder.build());
+      }
+
+      // Check that the var has been declared.
+      Scope scope = t.getScope();
+      Var var = scope.getVar(varName);
+      if (var == null) {
+        if (NodeUtil.isFunctionExpression(parent)
+            || NodeUtil.isClassExpression(parent) && n == parent.getFirstChild()) {
+          // e.g. [ function foo() {} ], it's okay if "foo" isn't defined in the
+          // current scope.
+        } else {
+          boolean isArguments = scope.isLocal() && ARGUMENTS.equals(varName);
+          // The extern checks are stricter, don't report a second error.
+          if (!isArguments && !(strictExternCheck && t.getInput().isExtern())) {
+            t.report(n, UNDEFINED_VAR_ERROR, varName);
+          }
+
+          if (sanityCheck) {
+            throw new IllegalStateException("Unexpected variable " + varName);
           } else {
-            // The variable reference is between two modules that have no
-            // dependency relationship. This should probably be considered an
-            // error, but just issue a warning for now.
-            t.report(n, MISSING_MODULE_DEP_ERROR,
+            createSynthesizedExternVar(varName);
+            scope.getGlobalScope().declare(varName, n, compiler.getSynthesizedExternsInput());
+          }
+        }
+        return;
+      }
+
+      CompilerInput currInput = t.getInput();
+      CompilerInput varInput = var.input;
+      if (currInput == varInput || currInput == null || varInput == null) {
+        // The variable was defined in the same file. This is fine.
+        return;
+      }
+
+      // Check module dependencies.
+      JSModule currModule = currInput.getModule();
+      JSModule varModule = varInput.getModule();
+      JSModuleGraph moduleGraph = compiler.getModuleGraph();
+      if (!sanityCheck && varModule != currModule && varModule != null && currModule != null) {
+        if (moduleGraph.dependsOn(currModule, varModule)) {
+          // The module dependency was properly declared.
+        } else {
+          if (scope.isGlobal()) {
+            if (moduleGraph.dependsOn(varModule, currModule)) {
+              // The variable reference violates a declared module dependency.
+              t.report(n, VIOLATED_MODULE_DEP_ERROR,
+                       currModule.getName(), varModule.getName(), varName);
+            } else {
+              // The variable reference is between two modules that have no
+              // dependency relationship. This should probably be considered an
+              // error, but just issue a warning for now.
+              t.report(n, MISSING_MODULE_DEP_ERROR,
+                       currModule.getName(), varModule.getName(), varName);
+            }
+          } else {
+            t.report(n, STRICT_MODULE_DEP_ERROR,
                      currModule.getName(), varModule.getName(), varName);
           }
-        } else {
-          t.report(n, STRICT_MODULE_DEP_ERROR,
-                   currModule.getName(), varModule.getName(), varName);
         }
       }
     }
@@ -276,15 +274,15 @@ class VarCheck extends AbstractPostOrderCallback implements
     public void visit(NodeTraversal t, Node n, Node parent) {
       if (n.isName()) {
         switch (parent.getType()) {
-          case Token.VAR:
-          case Token.LET:
-          case Token.CONST:
-          case Token.FUNCTION:
-          case Token.CLASS:
-          case Token.PARAM_LIST:
+          case VAR:
+          case LET:
+          case CONST:
+          case FUNCTION:
+          case CLASS:
+          case PARAM_LIST:
             // These are okay.
             break;
-          case Token.GETPROP:
+          case GETPROP:
             if (n == parent.getFirstChild()) {
               Scope scope = t.getScope();
               Var var = scope.getVar(n.getString());
@@ -294,19 +292,20 @@ class VarCheck extends AbstractPostOrderCallback implements
               }
             }
             break;
-         case Token.ASSIGN:
+         case ASSIGN:
             // Don't warn for the "window.foo = foo;" nodes added by
-            // DeclaredGlobalExternsOnWindow.
-            if (n == parent.getLastChild() && parent.getFirstChild().isGetProp()
-                && parent.getFirstChild().getLastChild().getString().equals(n.getString())) {
+            // DeclaredGlobalExternsOnWindow, nor for alias declarations
+            // of the form "/** @const */ ns.Foo = Bar;"
+            if (n == parent.getLastChild() && n.isQualifiedName()
+                && parent.getFirstChild().isQualifiedName()) {
               break;
             }
             // fall through
           default:
             // Don't warn for simple var assignments "/** @const */ var foo = bar;"
             // They are used to infer the types of namespace aliases.
-            if (parent.getType() != Token.NAME || parent.getParent() == null ||
-                !NodeUtil.isNameDeclaration(parent.getParent())) {
+            if (!parent.isName() || parent.getParent() == null
+                || !NodeUtil.isNameDeclaration(parent.getParent())) {
               t.report(n, NAME_REFERENCE_IN_EXTERNS_ERROR, n.getString());
             }
 
@@ -329,9 +328,13 @@ class VarCheck extends AbstractPostOrderCallback implements
    *     for the given node.
    */
   static boolean hasDuplicateDeclarationSuppression(Node n, Var origVar) {
-    Preconditions.checkState(n.isName() || n.isRest() || n.isStringKey());
+    Preconditions.checkState(n.isName() || n.isRest() || n.isStringKey(), n);
     Node parent = n.getParent();
     Node origParent = origVar.getParentNode();
+
+    if (isExternNamespace(n)) {
+      return true;
+    }
 
     JSDocInfo info = parent.getJSDocInfo();
     if (info != null && info.getSuppressions().contains("duplicate")) {
@@ -340,6 +343,10 @@ class VarCheck extends AbstractPostOrderCallback implements
 
     info = origParent.getJSDocInfo();
     return (info != null && info.getSuppressions().contains("duplicate"));
+  }
+
+  private static boolean isExternNamespace(Node n) {
+    return n.getParent().isVar() && n.isFromExterns() && NodeUtil.isNamespaceDecl(n);
   }
 
   /**
@@ -351,25 +358,30 @@ class VarCheck extends AbstractPostOrderCallback implements
         Scope s, String name, Node n, CompilerInput input) {
       Node parent = n.getParent();
 
+      Var origVar = s.getVar(name);
+      Node origParent = origVar.getParentNode();
+      if (parent.isLet()
+          || parent.isConst()
+          || parent.isClass()
+          || (origParent != null
+              && (origParent.isLet() || origParent.isConst() || origParent.isClass()))) {
+        compiler.report(JSError.make(n, LET_CONST_CLASS_MULTIPLY_DECLARED_ERROR));
+        return;
+      }
+
       // Don't allow multiple variables to be declared at the top-level scope
       if (s.isGlobal()) {
-        Var origVar = s.getVar(name);
-        Node origParent = origVar.getParentNode();
-        if (origParent.isCatch() &&
-            parent.isCatch()) {
+        if (origParent.isCatch() && parent.isCatch()) {
           // Okay, both are 'catch(x)' variables.
           return;
         }
 
-        if (parent.isLet() || parent.isConst() ||
-            origParent.isLet() || origParent.isConst()) {
-          compiler.report(
-              JSError.make(n, LET_CONST_MULTIPLY_DECLARED_ERROR));
+        boolean allowDupe = hasDuplicateDeclarationSuppression(n, origVar);
+        if (isExternNamespace(n)) {
+          parent.getParent().removeChild(parent);
+          compiler.reportCodeChange();
           return;
         }
-
-        boolean allowDupe = hasDuplicateDeclarationSuppression(n, origVar);
-
         if (!allowDupe) {
           compiler.report(
               JSError.make(n,

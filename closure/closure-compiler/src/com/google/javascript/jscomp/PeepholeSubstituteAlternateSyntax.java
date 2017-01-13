@@ -66,21 +66,21 @@ class PeepholeSubstituteAlternateSyntax
   @SuppressWarnings("fallthrough")
   public Node optimizeSubtree(Node node) {
     switch(node.getType()) {
-      case Token.ASSIGN_SUB:
+      case ASSIGN_SUB:
         return reduceSubstractionAssignment(node);
 
-      case Token.TRUE:
-      case Token.FALSE:
+      case TRUE:
+      case FALSE:
         return reduceTrueFalse(node);
 
-      case Token.NEW:
+      case NEW:
         node = tryFoldStandardConstructors(node);
         if (!node.isCall()) {
           return node;
         }
         // Fall through on purpose because tryFoldStandardConstructors() may
         // convert a NEW node into a CALL node
-      case Token.CALL:
+      case CALL:
         Node result =  tryFoldLiteralConstructor(node);
         if (result == node) {
           result = tryFoldSimpleFunctionCall(node);
@@ -90,29 +90,72 @@ class PeepholeSubstituteAlternateSyntax
         }
         return result;
 
-      case Token.RETURN:
+      case RETURN:
         return tryReduceReturn(node);
 
-      case Token.COMMA:
+      case COMMA:
         return trySplitComma(node);
 
-      case Token.NAME:
+      case NAME:
         return tryReplaceUndefined(node);
 
-      case Token.ARRAYLIT:
+      case ARRAYLIT:
         return tryMinimizeArrayLiteral(node);
 
-      case Token.MUL:
-      case Token.AND:
-      case Token.OR:
-      case Token.BITOR:
-      case Token.BITXOR:
-      case Token.BITAND:
+      case GETPROP:
+        return tryMinimizeWindowRefs(node);
+
+      case MUL:
+      case AND:
+      case OR:
+      case BITOR:
+      case BITXOR:
+      case BITAND:
         return tryRotateAssociativeOperator(node);
 
       default:
         return node; //Nothing changed
     }
+  }
+
+  private static final ImmutableSet<String> BUILTIN_EXTERNS = ImmutableSet.of(
+      "Object",
+      "Array",
+      "Error",
+      "RegExp",
+      "Math");
+
+  private Node tryMinimizeWindowRefs(Node node) {
+    // Normalization needs to be done to ensure there's no shadowing. The window prefix is also
+    // required if the global externs are not on the window.
+    if (!isASTNormalized() || !areDeclaredGlobalExternsOnWindow()) {
+      return node;
+    }
+
+    Preconditions.checkArgument(node.isGetProp());
+
+    if (node.getFirstChild().isName()) {
+      Node nameNode = node.getFirstChild();
+      Node stringNode = node.getLastChild();
+
+      // Since normalization has run we know we're referring to the global window.
+      if ("window".equals(nameNode.getString())
+          && BUILTIN_EXTERNS.contains(stringNode.getString())) {
+        Node newNameNode = IR.name(stringNode.getString());
+        Node parentNode = node.getParent();
+
+        newNameNode.useSourceInfoFrom(stringNode);
+        parentNode.replaceChild(node, newNameNode);
+
+        if (parentNode.isCall()) {
+          parentNode.putBooleanProp(Node.FREE_CALL, true);
+        }
+        reportCodeChange();
+        return newNameNode;
+      }
+    }
+
+    return node;
   }
 
   private Node tryRotateAssociativeOperator(Node n) {
@@ -156,26 +199,59 @@ class PeepholeSubstituteAlternateSyntax
   }
 
   private Node tryFoldSimpleFunctionCall(Node n) {
-    Preconditions.checkState(n.isCall());
+    Preconditions.checkState(n.isCall(), n);
     Node callTarget = n.getFirstChild();
-    if (callTarget != null && callTarget.isName() &&
-          callTarget.getString().equals("String")) {
-      // Fold String(a) to '' + (a) on immutable literals,
-      // which allows further optimizations
-      //
-      // We can't do this in the general case, because String(a) has
-      // slightly different semantics than '' + (a). See
-      // http://code.google.com/p/closure-compiler/issues/detail?id=759
-      Node value = callTarget.getNext();
-      if (value != null && value.getNext() == null &&
-          NodeUtil.isImmutableValue(value)) {
-        Node addition = IR.add(
-            IR.string("").srcref(callTarget),
-            value.detachFromParent());
-        n.getParent().replaceChild(n, addition);
-        reportCodeChange();
-        return addition;
+    if (callTarget == null || !callTarget.isName()) {
+      return n;
+    }
+    String targetName = callTarget.getString();
+    switch (targetName) {
+      case "Boolean": {
+        // Fold Boolean(a) to !!a
+        // http://www.ecma-international.org/ecma-262/6.0/index.html#sec-boolean-constructor-boolean-value
+        // and
+        // http://www.ecma-international.org/ecma-262/6.0/index.html#sec-logical-not-operator-runtime-semantics-evaluation
+        int paramCount = n.getChildCount() - 1;
+        // only handle the single known parameter case
+        if (paramCount == 1) {
+          Node value = n.getLastChild().detachFromParent();
+          Node replacement;
+          if (NodeUtil.isBooleanResult(value)) {
+            // If it is already a boolean do nothing.
+            replacement = value;
+          } else {
+            // Replace it with a "!!value"
+            replacement = IR.not(IR.not(value).srcref(n));
+          }
+          n.getParent().replaceChild(n, replacement);
+          reportCodeChange();
+        }
+        break;
       }
+
+      case "String": {
+        // Fold String(a) to '' + (a) on immutable literals,
+        // which allows further optimizations
+        //
+        // We can't do this in the general case, because String(a) has
+        // slightly different semantics than '' + (a). See
+        // http://code.google.com/p/closure-compiler/issues/detail?id=759
+        Node value = callTarget.getNext();
+        if (value != null && value.getNext() == null &&
+            NodeUtil.isImmutableValue(value)) {
+          Node addition = IR.add(
+              IR.string("").srcref(callTarget),
+              value.detachFromParent());
+          n.getParent().replaceChild(n, addition);
+          reportCodeChange();
+          return addition;
+        }
+        break;
+      }
+
+      default:
+        // nothing.
+        break;
     }
     return n;
   }
@@ -274,14 +350,14 @@ class PeepholeSubstituteAlternateSyntax
 
     if (result != null) {
       switch (result.getType()) {
-        case Token.VOID:
+        case VOID:
           Node operand = result.getFirstChild();
           if (!mayHaveSideEffects(operand)) {
             n.removeFirstChild();
             reportCodeChange();
           }
           break;
-        case Token.NAME:
+        case NAME:
           String name = result.getString();
           if (name.equals("undefined")) {
             n.removeFirstChild();
@@ -334,7 +410,7 @@ class PeepholeSubstituteAlternateSyntax
       if ("RegExp".equals(className)) {
         // Fold "new RegExp()" to "RegExp()", but only if the argument is a string.
         // See issue 1260.
-        if (n.getChildAtIndex(1) == null || n.getChildAtIndex(1).isString()) {
+        if (n.getSecondChild() == null || n.getSecondChild().isString()) {
           return true;
         }
       }
@@ -415,17 +491,17 @@ class PeepholeSubstituteAlternateSyntax
       action = FoldArrayAction.SAFE_TO_FOLD_WITH_ARGS;
     } else {
       switch (arg.getType()) {
-        case Token.STRING:
+        case STRING:
           // "Array('a')" --> "['a']"
           action = FoldArrayAction.SAFE_TO_FOLD_WITH_ARGS;
           break;
-        case Token.NUMBER:
+        case NUMBER:
           // "Array(0)" --> "[]"
           if (arg.getDouble() == 0) {
             action = FoldArrayAction.SAFE_TO_FOLD_WITHOUT_ARGS;
           }
           break;
-        case Token.ARRAYLIT:
+        case ARRAYLIT:
           // "Array([args])" --> "[[args]]"
           action = FoldArrayAction.SAFE_TO_FOLD_WITH_ARGS;
           break;
@@ -509,12 +585,12 @@ class PeepholeSubstituteAlternateSyntax
   private Node reduceTrueFalse(Node n) {
     if (late) {
       switch (n.getParent().getType()) {
-        case Token.EQ:
-        case Token.GT:
-        case Token.GE:
-        case Token.LE:
-        case Token.LT:
-        case Token.NE:
+        case EQ:
+        case GT:
+        case GE:
+        case LE:
+        case LT:
+        case NE:
           Node number = IR.number(n.isTrue() ? 1 : 0);
           n.getParent().replaceChild(n, number);
           reportCodeChange();

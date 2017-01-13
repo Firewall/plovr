@@ -272,6 +272,21 @@ public enum ConfigOption {
     }
   }),
 
+  /**
+   * If specified, keeps an on-disk cache of the compilation output.
+   *
+   * Note that if this cache is used, it won't account for any query parameters
+   * or request headers in the compilation request.
+   */
+  CACHE_OUTPUT_FILE("cache-output-file", new ConfigUpdater() {
+    @Override
+    public void apply(String outputFilePath, Config.Builder builder) {
+      File outputFile = (outputFilePath == null) ? null :
+          new File(maybeResolvePath(outputFilePath, builder));
+      builder.setCacheOutputFile(outputFile);
+    }
+  }),
+
   LANGUAGE_IN("language-in", new ConfigUpdater() {
     @Override
     public void apply(String mode, Config.Builder builder) {
@@ -619,6 +634,13 @@ public enum ConfigOption {
     }
   }),
 
+  SOY_TRANSLATION_PLUGIN("soy-translation-plugin", new ConfigUpdater() {
+    @Override
+    public void apply(String pluginName, Config.Builder builder) {
+      builder.setSoyTranslationPlugin(pluginName);
+    }
+  }),
+
   SOY_USE_INJECTED_DATA("soy-use-injected-data", new ConfigUpdater() {
     @Override
     public void apply(boolean soyUseInjectedData, Config.Builder builder) {
@@ -864,6 +886,29 @@ public enum ConfigOption {
       return true;
     }
   }),
+
+  TRANSLATIONS("translations", new ConfigUpdater() {
+    @Override
+    public void apply(String translations, Config.Builder builder) {
+      File dir = (translations == null) ? null :
+          new File(maybeResolvePath(translations, builder));
+      builder.setTranslationsDirectory(dir);
+    }
+  }),
+
+  LANGUAGE("language", new ConfigUpdater() {
+    @Override
+    public void apply(String language, Config.Builder builder) {
+      builder.setLanguage(language);
+    }
+
+    @Override
+    public boolean update(String mode, Config.Builder builder) {
+      apply(mode, builder);
+      return true;
+    }
+  }),
+
   ;
 
   private static class ConfigUpdater {

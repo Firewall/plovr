@@ -35,7 +35,6 @@ public final class NormalizeTest extends CompilerTestCase {
 
   public NormalizeTest() {
     super(EXTERNS);
-    compareJsDoc = false;
   }
 
   @Override
@@ -93,9 +92,26 @@ public final class NormalizeTest extends CompilerTestCase {
          "if (true)a:{ var a; var b; }");
   }
 
+  public void testAssignShorthand() {
+    test("x |= 1;", "x = x | 1;");
+    test("x ^= 1;", "x = x ^ 1;");
+    test("x &= 1;", "x = x & 1;");
+    test("x <<= 1;", "x = x << 1;");
+    test("x >>= 1;", "x = x >> 1;");
+    test("x >>>= 1;", "x = x >>> 1;");
+    test("x += 1;", "x = x + 1;");
+    test("x -= 1;", "x = x - 1;");
+    test("x *= 1;", "x = x * 1;");
+    test("x /= 1;", "x = x / 1;");
+    test("x %= 1;", "x = x % 1;");
+
+    test("/** @suppress {const} */ x += 1;", "/** @suppress {const} */ x = x + 1;");
+  }
+
   public void testDuplicateVarInExterns() {
     test("var extern;",
-         "/** @suppress {duplicate} */ var extern = 3;", "var extern = 3;",
+         "/** @suppress {duplicate} */ var extern = 3;",
+         "/** @suppress {duplicate} */ var extern = 3;",
          null, null);
   }
 
@@ -181,13 +197,14 @@ public final class NormalizeTest extends CompilerTestCase {
     testSame("function f() { function foo() {} }");
     test("function f() { f(); a:function bar() {} }",
          "function f() { f(); a:{ var bar = function () {} }}");
+    setAcceptedLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6);
     test("function f() { f(); {function bar() {}}}",
          "function f() { f(); {var bar = function () {}}}");
     test("function f() { f(); if (true) {function bar() {}}}",
          "function f() { f(); if (true) {var bar = function () {}}}");
   }
 
-  private String inFunction(String code) {
+  private static String inFunction(String code) {
     return "(function(){" + code + "})";
   }
 
@@ -200,6 +217,7 @@ public final class NormalizeTest extends CompilerTestCase {
   }
 
   public void testNormalizeFunctionDeclarations() throws Exception {
+    setAcceptedLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6);
     testSame("function f() {}");
     testSame("var f = function () {}");
     test("var f = function f() {}",
@@ -267,11 +285,11 @@ public final class NormalizeTest extends CompilerTestCase {
          "try { } catch(e) {e; try { } catch(e$$1) {e$$1;} }; ");
 
     // Verify the 1st global redefinition of extern definition is not removed.
-    test("/** @suppress {duplicate} */\nvar window;", "var window;");
+    testSame("/** @suppress {duplicate} */ var window;");
 
     // Verify the 2nd global redefinition of extern definition is removed.
-    test("/** @suppress {duplicate} */\nvar window;" +
-         "/** @suppress {duplicate} */\nvar window;", "var window;");
+    test("/** @suppress {duplicate} */ var window; /** @suppress {duplicate} */ var window;",
+         "/** @suppress {duplicate} */ var window;");
 
     // Verify local masking extern made unique.
     test("function f() {var window}",
@@ -299,6 +317,7 @@ public final class NormalizeTest extends CompilerTestCase {
   }
 
   public void testRemoveDuplicateVarDeclarations3() {
+    setAcceptedLanguage(CompilerOptions.LanguageMode.ECMASCRIPT6);
     test("var f = 1; function f(){}",
          "f = 1; function f(){}");
     test("var f; function f(){}",
@@ -335,7 +354,7 @@ public final class NormalizeTest extends CompilerTestCase {
     test("var ACONST = new Foo(); var b = ACONST;",
          "var ACONST = new Foo(); var b = ACONST;");
 
-    test("/** @const */var aa; aa=1;", "var aa;aa=1");
+    test("/** @const */ var aa; aa = 1;", "/** @const */ var aa; aa = 1");
   }
 
   public void testSkipRenamingExterns() {
@@ -461,15 +480,12 @@ public final class NormalizeTest extends CompilerTestCase {
 
   public void testExposeSimple() {
     test("var x = {}; /** @expose */ x.y = 3; x.y = 5;",
-         "var x = {}; x['y'] = 3; x['y'] = 5;");
+         "var x = {}; /** @expose */ x['y'] = 3; x['y'] = 5;");
   }
 
   public void testExposeComplex() {
-    test(
-        "var x = {/** @expose */ a: 1, b: 2};"
-        + "x.a = 3; /** @expose */ x.b = 5;",
-        "var x = {'a': 1, 'b': 2};"
-        + "x['a'] = 3; x['b'] = 5;");
+    test("var x = {/** @expose */ a: 1, b: 2}; x.a = 3; /** @expose */ x.b = 5;",
+         "var x = {/** @expose */ 'a': 1, 'b': 2}; x['a'] = 3; /** @expose */ x['b'] = 5;");
   }
 
   private Set<Node> findNodesWithProperty(Node root, final int prop) {
@@ -495,7 +511,7 @@ public final class NormalizeTest extends CompilerTestCase {
     new WithCollapse().testConstantProperties();
   }
 
-  private class WithCollapse extends CompilerTestCase {
+  private static class WithCollapse extends CompilerTestCase {
     WithCollapse() {
       enableNormalize();
     }
@@ -530,7 +546,7 @@ public final class NormalizeTest extends CompilerTestCase {
 
     @Override
     public CompilerPass getProcessor(Compiler compiler) {
-      return new CollapseProperties(compiler, true);
+      return new CollapseProperties(compiler);
     }
   }
 }

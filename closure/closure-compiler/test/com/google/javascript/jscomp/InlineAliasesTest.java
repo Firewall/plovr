@@ -16,6 +16,8 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.javascript.jscomp.InlineAliases.ALIAS_CYCLE;
+
 import com.google.common.collect.ImmutableList;
 
 /** Unit tests for {@link InlineAliases}. */
@@ -47,12 +49,11 @@ public class InlineAliasesTest extends Es6CompilerTestCase {
                 "exports = /** @constructor @extends {Base} */ function Foo() {}"))),
         ImmutableList.of(
             SourceFile.fromCode("A", LINE_JOINER.join(
-                "/** @const */ var $jscomp={}; /** @const */ $jscomp.scope={};",
-                "/** @constructor */ $jscomp.scope.Base = function(){};",
-                "/** @const */ var base = $jscomp.scope.Base;")),
+                "/** @constructor */ var module$contents$base_Base = function() {};",
+                "/** @const */ var module$exports$base = module$contents$base_Base;")),
             SourceFile.fromCode("B", LINE_JOINER.join(
-                "/** @const */ var leaf =",
-                "  /** @constructor @extends {$jscomp.scope.Base} */ function Foo(){}"))));
+                "/** @const */ var module$exports$leaf =",
+                "/** @constructor @extends {module$contents$base_Base} */ function Foo() {}"))));
   }
 
   public void testRewriteGoogModuleAliases2() {
@@ -70,13 +71,11 @@ public class InlineAliasesTest extends Es6CompilerTestCase {
                 "exports = /** @constructor @extends {Base} */ function Foo() {}"))),
         ImmutableList.of(
             SourceFile.fromCode("A", LINE_JOINER.join(
-                "/** @const */ var $jscomp={}; /** @const */ $jscomp.scope={};",
-                " /** @const */ var ns = {}; ",
-                "/** @constructor */ $jscomp.scope.Base = function(){};",
-                "/** @const */ ns.base = $jscomp.scope.Base;")),
+                "/** @constructor */ var module$contents$ns$base_Base = function() {};",
+                "/** @const */ var module$exports$ns$base = module$contents$ns$base_Base;")),
             SourceFile.fromCode("B", LINE_JOINER.join(
-                "/** @const */ var leaf =",
-                "  /** @constructor @extends {$jscomp.scope.Base} */function Foo(){}"))));
+                "/** @const */ var module$exports$leaf = ",
+                "/** @constructor @extends {module$contents$ns$base_Base} */ function Foo() {}"))));
   }
 
   public void testRewriteGoogModuleAliases3() {
@@ -86,7 +85,7 @@ public class InlineAliasesTest extends Es6CompilerTestCase {
                 "goog.module('ns.base');",
                 "",
                 "/** @constructor */ var Base = function() {};",
-                "/** @constructor */ Base.Foo = function(){};",
+                "/** @constructor */ Base.Foo = function() {};",
                 "exports = Base;")),
             SourceFile.fromCode("B", LINE_JOINER.join(
                 "goog.module('leaf');",
@@ -95,14 +94,13 @@ public class InlineAliasesTest extends Es6CompilerTestCase {
                 "exports = /** @constructor @extends {Base.Foo} */ function Foo() {}"))),
         ImmutableList.of(
             SourceFile.fromCode("A", LINE_JOINER.join(
-                "/** @const */ var $jscomp={}; /** @const */ $jscomp.scope={};",
-                "/** @const */ var ns = {}; ",
-                "/** @constructor */ $jscomp.scope.Base = function(){}",
-                "/** @constructor */ $jscomp.scope.Base.Foo = function(){};",
-                "/** @const */ ns.base = $jscomp.scope.Base;")),
+                "/** @constructor */ var module$contents$ns$base_Base = function() {};",
+                "/** @constructor */ module$contents$ns$base_Base.Foo = function() {};",
+                "/** @const */ var module$exports$ns$base = module$contents$ns$base_Base;")),
             SourceFile.fromCode("B", LINE_JOINER.join(
-                " /**@const*/ var leaf =",
-                "  /**@constructor @extends {$jscomp.scope.Base.Foo}*/function Foo(){}"))));
+                "/** @const */ var module$exports$leaf = ",
+                "/** @constructor @extends {module$contents$ns$base_Base.Foo} */",
+                "function Foo() {}"))));
   }
 
   public void testRewriteGoogModuleAliases4() {
@@ -120,12 +118,10 @@ public class InlineAliasesTest extends Es6CompilerTestCase {
                 "exports = new Base;"))),
         ImmutableList.of(
             SourceFile.fromCode("A", LINE_JOINER.join(
-                "/** @const */ var $jscomp={}; /** @const */ $jscomp.scope={};",
-                "/** @const */ var ns = {}; ",
-                "/** @constructor */ $jscomp.scope.Base = function(){};",
-                "/** @const */ ns.base = $jscomp.scope.Base;")),
+                "/** @constructor */ var module$contents$ns$base_Base = function() {};",
+                "/** @const */ var module$exports$ns$base = module$contents$ns$base_Base;")),
             SourceFile.fromCode("B",
-                "/** @const */ var leaf = new $jscomp.scope.Base;")));
+                "/** @const */ var module$exports$leaf = new module$contents$ns$base_Base")));
   }
 
   public void testRewriteGoogModuleAliasesWithPrototypeGets1() {
@@ -147,13 +143,12 @@ public class InlineAliasesTest extends Es6CompilerTestCase {
                 "var b;"))),
         ImmutableList.of(
             SourceFile.fromCode("B", LINE_JOINER.join(
-                "/**@const */var $jscomp = {}; /**@const */$jscomp.scope = {};",
-                "/**@interface */$jscomp.scope.B = /**@interface */function() {};",
-                "$jscomp.scope.B.prototype.f = function() {};",
-                "/** @const */var mod_B = $jscomp.scope.B;")),
+                "/**@interface */ function module$contents$mod_B_B() {}",
+                "module$contents$mod_B_B.prototype.f = function() {};",
+                "/** @const */ var module$exports$mod_B = module$contents$mod_B_B;")),
             SourceFile.fromCode("A", LINE_JOINER.join(
-                "/**@const */var mod_A = {};",
-                "/**@type {$jscomp.scope.B} */$jscomp.scope.b;"))));
+                "/** @const */ var module$exports$mod_A = {};",
+                "/**@type {module$contents$mod_B_B} */ var module$contents$mod_A_b;"))));
   }
 
   public void testRewriteGoogModuleAliasesWithPrototypeGets2() {
@@ -175,13 +170,12 @@ public class InlineAliasesTest extends Es6CompilerTestCase {
                 "var b;"))),
         ImmutableList.of(
             SourceFile.fromCode("B", LINE_JOINER.join(
-                "/**@const */var $jscomp = {}; /**@const */$jscomp.scope = {};",
-                "/**@interface */$jscomp.scope.B = /**@interface */function() {};",
-                "/** @const */var mod_B = $jscomp.scope.B;")),
+                "/**@interface */ function module$contents$mod_B_B() {}",
+                "/** @const */ var module$exports$mod_B = module$contents$mod_B_B;")),
             SourceFile.fromCode("A", LINE_JOINER.join(
-                "/**@const */var mod_A = {};",
-                "$jscomp.scope.B.prototype;",
-                "/**@type {$jscomp.scope.B} */$jscomp.scope.b;"))));
+                "/** @const */ var module$exports$mod_A = {}",
+                "module$contents$mod_B_B.prototype;",
+                "/**@type {module$contents$mod_B_B} */ var module$contents$mod_A_b;"))));
   }
 
 
@@ -251,6 +245,40 @@ public class InlineAliasesTest extends Es6CompilerTestCase {
             "var x = new ns.Foo.Subfoo;"));
   }
 
+  public void testHoistedAliasesInCode() {
+    // Unqualified
+    test(
+        LINE_JOINER.join(
+            "function Foo(){};",
+            "function Bar(){ var x = alias; };",
+            "var /** @const */ alias = Foo;"),
+        LINE_JOINER.join(
+            "function Foo(){};",
+            "function Bar(){ var x = Foo; };",
+            "var /** @const */ alias = Foo;"));
+
+    // Qualified
+    test(
+        LINE_JOINER.join(
+            "var ns = {};",
+            "ns.Foo = function(){};",
+            "function Bar(){ var x = ns.alias; };",
+            "/** @const */ ns.alias = ns.Foo;"),
+        LINE_JOINER.join(
+            "var ns = {};",
+            "ns.Foo = function(){};",
+            "function Bar(){ var x = ns.Foo; };",
+            "/** @const */ ns.alias = ns.Foo;"));
+  }
+
+  public void testAliasCycleError() {
+    testError(
+        LINE_JOINER.join(
+            "/** @const */ var x = y;",
+            "/** @const */ var y = x;"),
+        ALIAS_CYCLE);
+  }
+
   public void testTransitiveAliases() {
     test(
         LINE_JOINER.join(
@@ -269,13 +297,43 @@ public class InlineAliasesTest extends Es6CompilerTestCase {
             "var x = new ns.Foo.Bar;"));
   }
 
+  public void testAliasChains() {
+    // Unqualified
+    test(
+        LINE_JOINER.join(
+            "/** @constructor */ var Foo = function() {};",
+            "var /** @const */ alias1 = Foo;",
+            "var /** @const */ alias2 = alias1;",
+            "var x = new alias2"),
+        LINE_JOINER.join(
+            "/** @constructor */ var Foo = function() {};",
+            "var /** @const */ alias1 = Foo;",
+            "var /** @const */ alias2 = Foo;",
+            "var x = new Foo;"));
+
+    // Qualified
+    test(
+        LINE_JOINER.join(
+            "/** @const */ var ns = {};",
+            "/** @constructor */ ns.Foo = function() {};",
+            "var /** @const */ alias1 = ns.Foo;",
+            "var /** @const */ alias2 = alias1;",
+            "var x = new alias2"),
+        LINE_JOINER.join(
+            "/** @const */ var ns = {};",
+            "/** @constructor */ ns.Foo = function() {};",
+            "var /** @const */ alias1 = ns.Foo;",
+            "var /** @const */ alias2 = ns.Foo;",
+            "var x = new ns.Foo;"));
+}
+
   public void testAliasedEnums() {
     test(
         "/** @enum {number} */ var E = { A : 1 }; var /** @const */ alias = E.A; alias;",
         "/** @enum {number} */ var E = { A : 1 }; var /** @const */ alias = E.A; E.A;");
   }
 
-  public void testIncorrectConstAnnoataionDoesntCrash() {
+  public void testIncorrectConstAnnotationDoesntCrash() {
     testSame("var x = 0; var /** @const */ alias = x; alias = 5; use(alias);");
     testSame("var x = 0; var ns={}; /** @const */ ns.alias = x; ns.alias = 5; use(ns.alias);");
   }
@@ -286,6 +344,14 @@ public class InlineAliasesTest extends Es6CompilerTestCase {
 
   public void testDefinesAreNotInlined() {
     testSame("var ns = {}; var /** @define {boolean} */ alias = ns.Foo; var x = new alias;");
+  }
+
+  public void testConstWithTypesAreNotInlined() {
+      testSame(
+        LINE_JOINER.join(
+            "var /** @type {number} */ n = 5",
+            "var /** @const {number} */ alias = n;",
+            "var x = use(alias)"));
   }
 
   public void testPrivateVariablesAreNotInlined() {

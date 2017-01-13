@@ -89,20 +89,6 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
       DiagnosticType.error("JSC_MSG_FALLBACK_ARG_ERROR",
           "Could not find message entry for fallback argument {0}");
 
-  /**
-   * Warnings that only apply to people who use MSG_ to denote
-   * messages. Note that this doesn't include warnings about
-   * proper use of goog.getMsg
-   */
-  static final DiagnosticGroup MSG_CONVENTIONS = new DiagnosticGroup(
-      "messageConventions",
-      MESSAGE_HAS_NO_DESCRIPTION,
-      MESSAGE_HAS_NO_TEXT,
-      MESSAGE_TREE_MALFORMED,
-      MESSAGE_HAS_NO_VALUE,
-      MESSAGE_DUPLICATE_KEY,
-      MESSAGE_NOT_INITIALIZED_USING_NEW_SYNTAX);
-
   private static final String PH_JS_PREFIX = "{$";
   private static final String PH_JS_SUFFIX = "}";
 
@@ -198,14 +184,16 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
   @Override
   public void visit(NodeTraversal traversal, Node node, Node parent) {
     String messageKey;
+    String originalMessageKey;
     boolean isVar;
     Node msgNode;
 
     switch (node.getType()) {
-      case Token.NAME:
+      case NAME:
         // var MSG_HELLO = 'Message'
-        if ((parent != null) && (parent.isVar())) {
+        if ((parent != null) && (NodeUtil.isNameDeclaration(parent))) {
           messageKey = node.getString();
+          originalMessageKey = node.getOriginalName();
           isVar = true;
         } else {
           return;
@@ -213,7 +201,7 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
 
         msgNode = node.getFirstChild();
         break;
-      case Token.ASSIGN:
+      case ASSIGN:
         // somenamespace.someclass.MSG_HELLO = 'Message'
         isVar = false;
 
@@ -225,19 +213,21 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
         Node propNode = getProp.getLastChild();
 
         messageKey = propNode.getString();
+        originalMessageKey = getProp.getOriginalName();
         msgNode = node.getLastChild();
         break;
 
-      case Token.STRING_KEY:
+      case STRING_KEY:
         if (node.isQuotedString() || node.getFirstChild() == null) {
           return;
         }
         isVar = false;
         messageKey = node.getString();
+        originalMessageKey = node.getOriginalName();
         msgNode = node.getFirstChild();
         break;
 
-      case Token.CALL:
+      case CALL:
         // goog.getMsg()
         if (node.getFirstChild().matchesQualifiedName(MSG_FUNCTION_NAME)) {
           googMsgNodes.add(node);
@@ -250,6 +240,10 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
         return;
     }
 
+    if (originalMessageKey != null) {
+      messageKey = originalMessageKey;
+    }
+
     // Is this a message name?
     boolean isNewStyleMessage =
         msgNode != null && msgNode.isCall();
@@ -260,6 +254,15 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
     if (msgNode == null) {
       compiler.report(
           traversal.makeError(node, MESSAGE_HAS_NO_VALUE, messageKey));
+      return;
+    }
+
+    if (node.isAssign()
+        && msgNode.isQualifiedName()
+        && msgNode.getLastChild().getString().equals(messageKey)) {
+      // foo.Thing.MSG_EXAMPLE = bar.OtherThing.MSG_EXAMPLE;
+      // This kind of construct is created by Es6ToEs3ClassSideInheritance. Just ignore it; the
+      // message will have already been extracted from the base class.
       return;
     }
 
@@ -410,18 +413,18 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
     // Determine the message's value
     Node valueNode = nameNode.getFirstChild();
     switch (valueNode.getType()) {
-      case Token.STRING:
-      case Token.ADD:
+      case STRING:
+      case ADD:
         maybeInitMetaDataFromJsDocOrHelpVar(builder, parentNode,
             grandParentNode);
         builder.appendStringPart(extractStringFromStringExprNode(valueNode));
         break;
-      case Token.FUNCTION:
+      case FUNCTION:
         maybeInitMetaDataFromJsDocOrHelpVar(builder, parentNode,
             grandParentNode);
         extractFromFunctionNode(builder, valueNode);
         break;
-      case Token.CALL:
+      case CALL:
         maybeInitMetaDataFromJsDoc(builder, parentNode);
         extractFromCallNode(builder, valueNode);
         break;
@@ -466,9 +469,8 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
     }
 
     // Check the preceding node for meta data
-    if ((parentOfVarNode != null) &&
-        maybeInitMetaDataFromHelpVar(builder,
-            parentOfVarNode.getChildBefore(varNode))) {
+    if ((parentOfVarNode != null)
+        && maybeInitMetaDataFromHelpVar(builder, varNode.getPrevious())) {
       return;
     }
 
@@ -545,17 +547,16 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
   private static String extractStringFromStringExprNode(Node node)
       throws MalformedException {
     switch (node.getType()) {
-      case Token.STRING:
+      case STRING:
         return node.getString();
-      case Token.ADD:
+      case ADD:
         StringBuilder sb = new StringBuilder();
         for (Node child : node.children()) {
           sb.append(extractStringFromStringExprNode(child));
         }
         return sb.toString();
       default:
-        throw new MalformedException("STRING or ADD node expected; found: " +
-                getReadableTokenName(node), node);
+        throw new MalformedException("STRING or ADD node expected; found: " + node.getType(), node);
     }
   }
 
@@ -589,10 +590,10 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
 
     for (Node fnChild : node.children()) {
       switch (fnChild.getType()) {
-        case Token.NAME:
+        case NAME:
           // This is okay. The function has a name, but it is empty.
           break;
-        case Token.PARAM_LIST:
+        case PARAM_LIST:
           // Parse the placeholder names from the function argument list.
           for (Node argumentNode : fnChild.children()) {
             if (argumentNode.isName()) {
@@ -606,12 +607,12 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
             }
           }
           break;
-        case Token.BLOCK:
+        case BLOCK:
           // Build the message's value by examining the return statement
           Node returnNode = fnChild.getFirstChild();
           if (!returnNode.isReturn()) {
-            throw new MalformedException("RETURN node expected; found: "
-                + getReadableTokenName(returnNode), returnNode);
+            throw new MalformedException(
+                "RETURN node expected; found: " + returnNode.getType(), returnNode);
           }
           for (Node child : returnNode.children()) {
             extractFromReturnDescendant(builder, child);
@@ -629,8 +630,7 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
           break;
         default:
           throw new MalformedException(
-              "NAME, LP, or BLOCK node expected; found: "
-                  + getReadableTokenName(node), fnChild);
+              "NAME, LP, or BLOCK node expected; found: " + node.getType(), fnChild);
       }
     }
   }
@@ -647,21 +647,20 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
       throws MalformedException {
 
     switch (node.getType()) {
-      case Token.STRING:
+      case STRING:
         builder.appendStringPart(node.getString());
         break;
-      case Token.NAME:
+      case NAME:
         builder.appendPlaceholderReference(node.getString());
         break;
-      case Token.ADD:
+      case ADD:
         for (Node child : node.children()) {
           extractFromReturnDescendant(builder, child);
         }
         break;
       default:
         throw new MalformedException(
-            "STRING, NAME, or ADD node expected; found: "
-                + getReadableTokenName(node), node);
+            "STRING, NAME, or ADD node expected; found: " + node.getType(), node);
     }
   }
 
@@ -895,13 +894,6 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
   }
 
   /**
-   * Returns human-readable name of the given node's type.
-   */
-  private static String getReadableTokenName(Node node) {
-    return Token.name(node.getType());
-  }
-
-  /**
    * Converts the given string from upper-underscore case to lower-camel case,
    * preserving numeric suffixes. For example: "NAME" -> "name" "A4_LETTER" ->
    * "a4Letter" "START_SPAN_1_23" -> "startSpan_1_23".
@@ -941,7 +933,7 @@ public abstract class JsMessageVisitor extends AbstractPostOrderCallback
    *
    * @throws MalformedException if the node is null or the wrong type
    */
-  protected void checkNode(@Nullable Node node, int type) throws MalformedException {
+  protected void checkNode(@Nullable Node node, Token type) throws MalformedException {
     if (node == null) {
       throw new MalformedException(
           "Expected node type " + type + "; found: null", node);

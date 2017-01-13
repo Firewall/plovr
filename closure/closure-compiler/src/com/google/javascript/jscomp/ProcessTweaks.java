@@ -117,30 +117,30 @@ class ProcessTweaks implements CompilerPass {
 
     final String name;
     final String expectedTypeName;
-    final int validNodeTypeA;
-    final int validNodeTypeB;
+    final Token validNodeTypeA;
+    final Token validNodeTypeB;
     final TweakFunction registerFunction;
 
     TweakFunction(String name) {
-      this(name, null, Token.ERROR, Token.ERROR, null);
+      this(name, null, Token.EMPTY, Token.EMPTY, null);
     }
 
     TweakFunction(String name, String expectedTypeName,
-        int validNodeTypeA) {
-      this(name, expectedTypeName, validNodeTypeA, Token.ERROR, null);
+        Token validNodeTypeA) {
+      this(name, expectedTypeName, validNodeTypeA, Token.EMPTY, null);
     }
 
     TweakFunction(String name, String expectedTypeName,
-        int validNodeTypeA, int validNodeTypeB) {
+        Token validNodeTypeA, Token validNodeTypeB) {
       this(name, expectedTypeName, validNodeTypeA, validNodeTypeB, null);
     }
 
     TweakFunction(String name, TweakFunction registerFunction) {
-      this(name, null, Token.ERROR, Token.ERROR, registerFunction);
+      this(name, null, Token.EMPTY, Token.EMPTY, registerFunction);
     }
 
     TweakFunction(String name, String expectedTypeName,
-        int validNodeTypeA, int validNodeTypeB,
+        Token validNodeTypeA, Token validNodeTypeB,
         TweakFunction registerFunction) {
       this.name = name;
       this.expectedTypeName = expectedTypeName;
@@ -149,7 +149,7 @@ class ProcessTweaks implements CompilerPass {
       this.registerFunction = registerFunction;
     }
 
-    boolean isValidNodeType(int type) {
+    boolean isValidNodeType(Token type) {
       return type == validNodeTypeA || type == validNodeTypeB;
     }
 
@@ -359,7 +359,7 @@ class ProcessTweaks implements CompilerPass {
       }
 
       // Ensure the first parameter (the tweak ID) is a string literal.
-      Node tweakIdNode = n.getFirstChild().getNext();
+      Node tweakIdNode = n.getSecondChild();
       if (!tweakIdNode.isString()) {
         compiler.report(t.makeError(tweakIdNode, NON_LITERAL_TWEAK_ID_ERROR));
         return;
@@ -445,7 +445,7 @@ class ProcessTweaks implements CompilerPass {
     }
 
     Node getIdNode() {
-      return callNode.getFirstChild().getNext();
+      return callNode.getSecondChild();
     }
   }
 

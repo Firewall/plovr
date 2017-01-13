@@ -16,8 +16,6 @@
 
 package com.google.javascript.jscomp;
 
-import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
-
 /**
  * Test that warnings are generated in appropriate cases and appropriate
  * cases only by VariableReferenceCheck
@@ -95,6 +93,7 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
 
   public void testUnreferencedBleedingFunction() {
     assertNoWarning("var x = function y() {}");
+    assertNoWarning("var x = function y() {}; var y = 1;");
   }
 
   public void testReferencedBleedingFunction() {
@@ -118,43 +117,43 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
   }
 
   public void testNonHoistedFunction() {
-    assertUndeclared("if (true) { f(); function f() {} }");
+    assertUndeclaredEs6("if (true) { f(); function f() {} }");
   }
 
   public void testNonHoistedFunction2() {
-    assertNoWarning("if (false) { function f() {} f(); }");
+    assertNoWarningEs6("if (false) { function f() {} f(); }");
   }
 
   public void testNonHoistedFunction3() {
-    assertNoWarning("function g() { if (false) { function f() {} f(); }}");
+    assertNoWarningEs6("function g() { if (false) { function f() {} f(); }}");
   }
 
   public void testNonHoistedFunction4() {
-    assertAmbiguous("if (false) { function f() {} }  f();");
+    assertAmbiguousEs6("if (false) { function f() {} }  f();");
   }
 
   public void testNonHoistedFunction5() {
-    assertAmbiguous("function g() { if (false) { function f() {} }  f(); }");
+    assertAmbiguousEs6("function g() { if (false) { function f() {} }  f(); }");
   }
 
   public void testNonHoistedFunction6() {
-    assertUndeclared("if (false) { f(); function f() {} }");
+    assertUndeclaredEs6("if (false) { f(); function f() {} }");
   }
 
   public void testNonHoistedFunction7() {
-    assertUndeclared("function g() { if (false) { f(); function f() {} }}");
+    assertUndeclaredEs6("function g() { if (false) { f(); function f() {} }}");
   }
 
   public void testNonHoistedRecursiveFunction1() {
-    assertNoWarning("if (false) { function f() { f(); }}");
+    assertNoWarningEs6("if (false) { function f() { f(); }}");
   }
 
   public void testNonHoistedRecursiveFunction2() {
-    assertNoWarning("function g() { if (false) { function f() { f(); }}}");
+    assertNoWarningEs6("function g() { if (false) { function f() { f(); }}}");
   }
 
   public void testNonHoistedRecursiveFunction3() {
-    assertNoWarning("function g() { if (false) { function f() { f(); g(); }}}");
+    assertNoWarningEs6("function g() { if (false) { function f() { f(); g(); }}}");
   }
 
   public void testDestructuringInFor() {
@@ -168,18 +167,14 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
 
   public void testNoWarnInExterns1() {
     // Verify duplicate suppressions are properly recognized.
-    String externs =
-       "var google;" +
-       "/** @suppress {duplicate} */ var google";
+    String externs = "var google; /** @suppress {duplicate} */ var google";
     String code = "";
     testSame(externs, code, null);
   }
 
   public void testNoWarnInExterns2() {
     // Verify we don't complain about early references in externs
-    String externs =
-       "window;" +
-       "var window;";
+    String externs = "window; var window;";
     String code = "";
     testSame(externs, code, null);
   }
@@ -191,6 +186,16 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
     assertUnused("function f() { var a; a = 2; }");
   }
 
+  /**
+   * Inside a goog.scope, don't warn because the alias might be used in a type annotation.
+   */
+  public void testUnusedLocalVarInGoogScope() {
+    enableUnusedLocalAssignmentCheck = true;
+    testSame("goog.scope(function f() { var a; });");
+    testSame("goog.scope(function f() { /** @typedef {some.long.name} */ var a; });");
+    testSame("goog.scope(function f() { var a = some.long.name; });");
+  }
+
   public void testUnusedLocalLet() {
     enableUnusedLocalAssignmentCheck = true;
     assertUnusedEs6("function f() { let a; }");
@@ -198,7 +203,7 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
     assertUnusedEs6("function f() { let a; a = 2; }");
   }
 
-  public void xtestUnusedLocalConst() {
+  public void testUnusedLocalConst() {
     enableUnusedLocalAssignmentCheck = true;
     assertUnusedEs6("function f() { const a = 2; }");
   }
@@ -218,9 +223,22 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
     assertUnused("function f() { var x = 1; function g() { x = 2; } }");
   }
 
+  public void testIncrementDecrementResultUsed() {
+    enableUnusedLocalAssignmentCheck = true;
+    assertNoWarning("function f() { var x = 5; while (x-- > 0) {} }");
+    assertNoWarning("function f() { var x = -5; while (x++ < 0) {} }");
+    assertNoWarning("function f() { var x = 5; while (--x > 0) {} }");
+    assertNoWarning("function f() { var x = -5; while (++x < 0) {} }");
+  }
+
   public void testUsedInInnerFunction() {
     enableUnusedLocalAssignmentCheck = true;
     assertNoWarning("function f() { var x = 1; function g() { use(x); } }");
+  }
+
+  public void testUsedInShorthandObjLit() {
+    enableUnusedLocalAssignmentCheck = true;
+    testSameEs6("function f() { var x = 1; return {x}; }");
   }
 
   public void testUnusedCatch() {
@@ -236,6 +254,8 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
   public void testForIn() {
     enableUnusedLocalAssignmentCheck = true;
     assertNoWarning("for (var prop in obj) {}");
+    assertNoWarning("for (prop in obj) {}");
+    assertNoWarning("var prop; for (prop in obj) {}");
   }
   /**
    * Expects the JS to generate one bad-read error.
@@ -254,9 +274,14 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
   /**
    * Expects the JS to generate one bad-write warning.
    */
-  private void assertAmbiguous(String js) {
-    testError(js, VariableReferenceCheck.AMBIGUOUS_FUNCTION_DECL,
-        LanguageMode.ECMASCRIPT5);
+  private void assertUndeclaredEs6(String js) {
+    testWarningEs6(js, VariableReferenceCheck.EARLY_REFERENCE);
+  }
+
+  /**
+   * Expects the JS to generate one bad-write warning.
+   */
+  private void assertAmbiguousEs6(String js) {
     testSameEs6(js); // In ES6, these are block scoped functions, so no ambiguity.
   }
 
@@ -279,5 +304,12 @@ public final class VariableReferenceCheckTest extends Es6CompilerTestCase {
    */
   private void assertNoWarning(String js) {
     testSame(js);
+  }
+
+  /**
+   * Expects the JS to generate no errors or warnings.
+   */
+  private void assertNoWarningEs6(String js) {
+    testSameEs6(js);
   }
 }

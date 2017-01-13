@@ -19,7 +19,6 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TypeI;
 
 import java.util.ArrayList;
@@ -60,41 +59,56 @@ class RemoveUnusedClassProperties
 
   private void removeUnused() {
     for (Node n : candidates) {
-      Preconditions.checkState(n.isGetProp());
-      String propName = n.getLastChild().getString();
-      if (!used.contains(propName)) {
-        Node parent = n.getParent();
-        Node replacement;
-        if (NodeUtil.isAssignmentOp(parent)) {
-          Node assign = parent;
-          Preconditions.checkState(assign != null
-              && NodeUtil.isAssignmentOp(assign)
-              && assign.getFirstChild() == n);
-          compiler.reportChangeToEnclosingScope(assign);
-          // 'this.x = y' to 'y'
-          replacement = assign.getLastChild().detachFromParent();
-        } else if (parent.isInc() || parent.isDec()) {
-          compiler.reportChangeToEnclosingScope(parent);
-          replacement = IR.number(0).srcref(parent);
-        } else {
-          throw new IllegalStateException("unexpected: " + parent);
-        }
-
-        // If the property expression is complex preserve that part of the
-        // expression.
-        if (!n.isQualifiedName()) {
-          Node preserved = n.getFirstChild();
-          while (preserved.isGetProp()) {
-            preserved = preserved.getFirstChild();
+      if (NodeUtil.isObjectLitKey(n)) {
+        String propName = NodeUtil.getObjectLitKeyName(n);
+        if (!used.contains(propName)) {
+          // If the property definition has side-effect, finding a place for it
+          // can be tricky so just leave it in place.
+          if (!n.isStringKey()
+              || !NodeUtil.mayHaveSideEffects(n.getFirstChild(), compiler)) {
+            Node parent = n.getParent();
+            parent.removeChild(n);
+            compiler.reportChangeToEnclosingScope(parent);
           }
-          replacement = IR.comma(
-              preserved.detachFromParent(),
-              replacement)
-              .srcref(parent);
         }
+      } else {
+        Preconditions.checkState(n.isGetProp(), n);
+        String propName = n.getLastChild().getString();
+        if (!used.contains(propName)) {
 
-        compiler.reportChangeToEnclosingScope(parent);
-        parent.getParent().replaceChild(parent, replacement);
+          Node parent = n.getParent();
+          Node replacement;
+          if (NodeUtil.isAssignmentOp(parent)) {
+            Node assign = parent;
+            Preconditions.checkState(assign != null
+                && NodeUtil.isAssignmentOp(assign)
+                && assign.getFirstChild() == n);
+            compiler.reportChangeToEnclosingScope(assign);
+            // 'this.x = y' to 'y'
+            replacement = assign.getLastChild().detachFromParent();
+          } else if (parent.isInc() || parent.isDec()) {
+            compiler.reportChangeToEnclosingScope(parent);
+            replacement = IR.number(0).srcref(parent);
+          } else {
+            throw new IllegalStateException("unexpected: " + parent);
+          }
+
+          // If the property expression is complex preserve that part of the
+          // expression.
+          if (!n.isQualifiedName()) {
+            Node preserved = n.getFirstChild();
+            while (preserved.isGetProp()) {
+              preserved = preserved.getFirstChild();
+            }
+            replacement = IR.comma(
+                preserved.detachFromParent(),
+                replacement)
+                .srcref(parent);
+          }
+
+          compiler.reportChangeToEnclosingScope(parent);
+          parent.getParent().replaceChild(parent, replacement);
+        }
       }
     }
   }
@@ -107,7 +121,7 @@ class RemoveUnusedClassProperties
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
      switch (n.getType()) {
-       case Token.GETPROP: {
+       case GETPROP: {
          String propName = n.getLastChild().getString();
          if (compiler.getCodingConvention().isExported(propName)
              || isPinningPropertyUse(n)
@@ -121,24 +135,38 @@ class RemoveUnusedClassProperties
          break;
        }
 
-       case Token.OBJECTLIT: {
+       case OBJECTLIT: {
          // Assume any object literal definition might be a reflection on the
          // class property.
-         for (Node c : n.children()) {
-           used.add(c.getString());
+         if (!NodeUtil.isObjectDefinePropertiesDefinition(n.getParent())) {
+           for (Node c : n.children()) {
+             used.add(c.getString());
+           }
          }
          break;
        }
 
-       case Token.CALL:
-         // Look for properties referenced through "JSCompiler_propertyRename".
-         Node target = n.getFirstChild();
-         if (n.hasMoreThanOneChild()
-             && target.isName()
-             && target.getString().equals(NodeUtil.JSC_PROPERTY_NAME_FN)) {
+      case CALL:
+        // Look for properties referenced through the property rename functions.
+        Node target = n.getFirstChild();
+        if (n.hasMoreThanOneChild()
+            && compiler
+                .getCodingConvention()
+                .isPropertyRenameFunction(target.getOriginalQualifiedName())) {
            Node propName = target.getNext();
            if (propName.isString()) {
              used.add(propName.getString());
+           }
+         } else if (NodeUtil.isObjectDefinePropertiesDefinition(n)) {
+           if (n.getChildCount() == 3 && n.getLastChild().isObjectLit()) {
+             Node objlit = n.getLastChild();
+             for (Node c : objlit.children()) {
+               if (!c.isQuotedString()) {
+                 candidates.add(c);
+               } else {
+                 used.add(c.getString());
+               }
+             }
            }
          }
          break;
@@ -146,7 +174,7 @@ class RemoveUnusedClassProperties
   }
 
   private boolean isRemovablePropertyDefinition(Node n) {
-    Preconditions.checkState(n.isGetProp());
+    Preconditions.checkState(n.isGetProp(), n);
     Node target = n.getFirstChild();
     return target.isThis()
         || (this.removeUnusedConstructorProperties && isConstructor(target))

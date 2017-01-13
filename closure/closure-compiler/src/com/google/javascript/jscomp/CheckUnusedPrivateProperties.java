@@ -20,7 +20,6 @@ import com.google.common.base.Preconditions;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSDocInfo.Visibility;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TypeI;
 
 import java.util.ArrayList;
@@ -76,9 +75,9 @@ class CheckUnusedPrivateProperties
 
   private String getPropName(Node n) {
     switch (n.getType()) {
-      case Token.GETPROP:
+      case GETPROP:
         return n.getLastChild().getString();
-      case Token.MEMBER_FUNCTION_DEF:
+      case MEMBER_FUNCTION_DEF:
         return n.getString();
     }
     throw new RuntimeException("Unexpected node type: " + n);
@@ -96,13 +95,13 @@ class CheckUnusedPrivateProperties
   @Override
   public void visit(NodeTraversal t, Node n, Node parent) {
      switch (n.getType()) {
-       case Token.SCRIPT: {
+       case SCRIPT: {
          // exiting the script, report any privates not used in the file.
          reportUnused(t);
          break;
        }
 
-       case Token.GETPROP: {
+       case GETPROP: {
          String propName = n.getLastChild().getString();
          if (compiler.getCodingConvention().isExported(propName)
              || isPinningPropertyUse(n)
@@ -110,22 +109,22 @@ class CheckUnusedPrivateProperties
            used.add(propName);
          } else {
            // Only consider "private" properties.
-           if (isPrivatePropDecl(n)) {
+           if (isCheckablePrivatePropDecl(n)) {
              candidates.add(n);
            }
          }
          break;
        }
 
-       case Token.MEMBER_FUNCTION_DEF: {
+       case MEMBER_FUNCTION_DEF: {
          // Only consider "private" methods.
-         if (isPrivatePropDecl(n)) {
+         if (isCheckablePrivatePropDecl(n)) {
            candidates.add(n);
          }
          break;
        }
 
-       case Token.OBJECTLIT: {
+       case OBJECTLIT: {
          // Assume any object literal definition might be a reflection on the
          // class property.
          for (Node c : n.children()) {
@@ -134,12 +133,13 @@ class CheckUnusedPrivateProperties
          break;
        }
 
-       case Token.CALL:
-         // Look for properties referenced through "JSCompiler_propertyRename".
-         Node target = n.getFirstChild();
-         if (n.hasMoreThanOneChild()
-             && target.isName()
-             && target.getString().equals(NodeUtil.JSC_PROPERTY_NAME_FN)) {
+      case CALL:
+        // Look for properties referenced through a property rename function.
+        Node target = n.getFirstChild();
+        if (n.hasMoreThanOneChild()
+            && compiler
+                .getCodingConvention()
+                .isPropertyRenameFunction(target.getOriginalQualifiedName())) {
            Node propName = target.getNext();
            if (propName.isString()) {
              used.add(propName.getString());
@@ -158,8 +158,15 @@ class CheckUnusedPrivateProperties
     return (info != null && info.getVisibility() == Visibility.PRIVATE);
   }
 
+  private boolean isCheckablePrivatePropDecl(Node n) {
+    // TODO(tbreisacher): Look for uses of the typedef/interface in type expressions; warn if there
+    // are no uses.
+    JSDocInfo info = NodeUtil.getBestJSDocInfo(n);
+    return isPrivatePropDecl(n) && !info.hasTypedefType() && !info.isInterface();
+  }
+
   private boolean isCandidatePropertyDefinition(Node n) {
-    Preconditions.checkState(n.isGetProp());
+    Preconditions.checkState(n.isGetProp(), n);
     Node target = n.getFirstChild();
     return target.isThis()
         || (isConstructor(target))

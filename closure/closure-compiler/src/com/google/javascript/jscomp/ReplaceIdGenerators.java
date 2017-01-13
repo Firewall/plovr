@@ -19,6 +19,7 @@ package com.google.javascript.jscomp;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.ImmutableBiMap;
+import com.google.common.primitives.Booleans;
 import com.google.debugging.sourcemap.Base64;
 import com.google.javascript.jscomp.NodeTraversal.AbstractPostOrderCallback;
 import com.google.javascript.rhino.IR;
@@ -50,7 +51,7 @@ class ReplaceIdGenerators implements CompilerPass {
       DiagnosticType.error(
           "JSC_CONFLICTING_ID_GENERATOR_TYPE",
           "Id generator can only be one of " +
-          "consistent, inconsistent, mapped or stable.");
+          "consistent, inconsistent, mapped, stable, or xid.");
 
   static final DiagnosticType INVALID_GENERATOR_ID_MAPPING =
       DiagnosticType.error(
@@ -94,19 +95,16 @@ class ReplaceIdGenerators implements CompilerPass {
   private final Map<String, BiMap<String, String>> previousMap;
 
   private final boolean generatePseudoNames;
-
-  public static final RenamingMap UNIQUE = new UniqueRenamingToken();
-
-  private static class UniqueRenamingToken implements RenamingMap {
-    @Override public String get(String value) { return null; }
-  }
+  private final Xid.HashFunction xidHashFunction;
 
   public ReplaceIdGenerators(
       AbstractCompiler compiler, Map<String, RenamingMap> idGens,
       boolean generatePseudoNames,
-      String previousMapSerialized) {
+      String previousMapSerialized,
+      Xid.HashFunction xidHashFunction) {
     this.compiler = compiler;
     this.generatePseudoNames = generatePseudoNames;
+    this.xidHashFunction = xidHashFunction;
     nameGenerators = new LinkedHashMap<>();
     idGeneratorMaps = new LinkedHashMap<>();
     consistNameMap = new LinkedHashMap<>();
@@ -137,7 +135,8 @@ class ReplaceIdGenerators implements CompilerPass {
     CONSISTENT,
     INCONSISTENT,
     MAPPED,
-    STABLE
+    STABLE,
+    XID
   }
 
   private static interface NameSupplier {
@@ -145,16 +144,16 @@ class ReplaceIdGenerators implements CompilerPass {
     RenameStrategy getRenameStrategy();
   }
 
-  private static class ObfuscatedNameSuppier implements NameSupplier {
+  private static class ObfuscatedNameSupplier implements NameSupplier {
     private final NameGenerator generator;
     private final Map<String, String> previousMappings;
     private RenameStrategy renameStrategy;
 
-    public ObfuscatedNameSuppier(
+    public ObfuscatedNameSupplier(
         RenameStrategy renameStrategy, BiMap<String, String> previousMappings) {
       this.previousMappings = previousMappings.inverse();
       this.generator =
-          new NameGenerator(previousMappings.keySet(), "", null);
+          new DefaultNameGenerator(previousMappings.keySet(), "", null);
       this.renameStrategy = renameStrategy;
     }
 
@@ -173,11 +172,11 @@ class ReplaceIdGenerators implements CompilerPass {
     }
   }
 
-  private static class PseudoNameSuppier implements NameSupplier {
+  private static class PseudoNameSupplier implements NameSupplier {
     private int counter = 0;
     private RenameStrategy renameStrategy;
 
-    public PseudoNameSuppier(RenameStrategy renameStrategy) {
+    public PseudoNameSupplier(RenameStrategy renameStrategy) {
       this.renameStrategy = renameStrategy;
     }
 
@@ -206,6 +205,23 @@ class ReplaceIdGenerators implements CompilerPass {
     }
   }
 
+  private static class XidNameSupplier implements NameSupplier {
+    final Xid xid;
+
+    XidNameSupplier(Xid.HashFunction hashFunction) {
+      this.xid = hashFunction == null ? new Xid() : new Xid(hashFunction);
+    }
+
+    @Override
+    public String getName(String id, String name) {
+      return xid.get(name);
+    }
+    @Override
+    public RenameStrategy getRenameStrategy() {
+      return RenameStrategy.XID;
+    }
+  }
+
   private static class MappedNameSupplier implements NameSupplier {
     private final RenamingMap map;
 
@@ -231,10 +247,12 @@ class ReplaceIdGenerators implements CompilerPass {
         ImmutableBiMap.<String, String>of();
     if (renameStrategy == RenameStrategy.STABLE) {
       return new StableNameSupplier();
+    } else if (renameStrategy == RenameStrategy.XID) {
+      return new XidNameSupplier(this.xidHashFunction);
     } else if (generatePseudoNames) {
-      return new PseudoNameSuppier(renameStrategy);
+      return new PseudoNameSupplier(renameStrategy);
     } else {
-      return new ObfuscatedNameSuppier(renameStrategy, previousMappings);
+      return new ObfuscatedNameSupplier(renameStrategy, previousMappings);
     }
   }
 
@@ -254,10 +272,12 @@ class ReplaceIdGenerators implements CompilerPass {
       }
 
       int numGeneratorAnnotations =
-          (doc.isConsistentIdGenerator() ? 1 : 0) +
-          (doc.isIdGenerator() ? 1 : 0) +
-          (doc.isStableIdGenerator() ? 1 : 0) +
-          (doc.isMappedIdGenerator() ? 1 : 0);
+          Booleans.countTrue(
+              doc.isConsistentIdGenerator(),
+              doc.isIdGenerator(),
+              doc.isStableIdGenerator(),
+              doc.isXidGenerator(),
+              doc.isMappedIdGenerator());
       if (numGeneratorAnnotations == 0) {
         return;
       } else if (numGeneratorAnnotations > 1) {
@@ -285,6 +305,10 @@ class ReplaceIdGenerators implements CompilerPass {
         nameGenerators.put(
             name, createNameSupplier(
                 RenameStrategy.STABLE, previousMap.get(name)));
+      } else if (doc.isXidGenerator()) {
+        nameGenerators.put(
+            name, createNameSupplier(
+                RenameStrategy.XID, previousMap.get(name)));
       } else if (doc.isIdGenerator()) {
         nameGenerators.put(
             name, createNameSupplier(
@@ -343,7 +367,7 @@ class ReplaceIdGenerators implements CompilerPass {
         }
       }
 
-      Node arg = n.getFirstChild().getNext();
+      Node arg = n.getSecondChild();
       if (arg == null) {
         compiler.report(t.makeError(n, INVALID_GENERATOR_PARAMETER));
       } else if (arg.isString()) {
@@ -411,7 +435,7 @@ class ReplaceIdGenerators implements CompilerPass {
   }
 
   static String getIdForGeneratorNode(boolean consistent, Node n) {
-    Preconditions.checkState(n.isString() || n.isStringKey());
+    Preconditions.checkState(n.isString() || n.isStringKey(), n);
     if (consistent) {
       return n.getString();
     } else {

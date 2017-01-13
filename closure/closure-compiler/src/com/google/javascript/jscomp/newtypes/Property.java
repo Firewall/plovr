@@ -92,6 +92,10 @@ class Property {
     return inferredType;
   }
 
+  Node getDefSite() {
+    return this.defSite;
+  }
+
   JSType getDeclaredType() {
     return declaredType;
   }
@@ -186,16 +190,14 @@ class Property {
   }
 
   /** Returns whether unification succeeded */
-  boolean unifyWithSubtype(
-      Property other,
-      List<String> typeParameters,
-      Multimap<String, JSType> typeMultimap) {
+  boolean unifyWithSubtype(Property other, List<String> typeParameters,
+      Multimap<String, JSType> typeMultimap, SubtypeCache subSuperMap) {
     if (!inferredType.unifyWithSubtype(
-        other.inferredType, typeParameters, typeMultimap)) {
+        other.inferredType, typeParameters, typeMultimap, subSuperMap)) {
       return false;
     } else if (declaredType != null && other.declaredType != null &&
         !declaredType.unifyWithSubtype(
-        other.declaredType, typeParameters, typeMultimap)) {
+            other.declaredType, typeParameters, typeMultimap, subSuperMap)) {
       return false;
     }
     return true;

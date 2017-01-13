@@ -39,11 +39,7 @@
 
 package com.google.javascript.rhino.jstype;
 
-import com.google.javascript.rhino.jstype.JSType;
-import com.google.javascript.rhino.jstype.JSTypeRegistry;
-import com.google.javascript.rhino.jstype.ModificationVisitor;
-import com.google.javascript.rhino.jstype.TemplateType;
-import com.google.javascript.rhino.jstype.TemplateTypeMap;
+import com.google.common.base.Preconditions;
 
 import java.util.ArrayDeque;
 
@@ -56,12 +52,17 @@ import java.util.ArrayDeque;
 public class TemplateTypeMapReplacer extends ModificationVisitor {
   private final TemplateTypeMap replacements;
   private ArrayDeque<TemplateType> visitedTypes;
+  private TemplateType keyType = null;
 
   public TemplateTypeMapReplacer(
       JSTypeRegistry registry, TemplateTypeMap replacements) {
     super(registry, false);
     this.replacements = replacements;
     this.visitedTypes = new ArrayDeque<>();
+  }
+
+  void setKeyType(TemplateType keyType) {
+    this.keyType = keyType;
   }
 
   @Override
@@ -73,17 +74,50 @@ public class TemplateTypeMapReplacer extends ModificationVisitor {
         // for the TemplateType, return the TemplateType type itself.
         return type;
       } else {
-        JSType replacement = replacements.getTemplateType(type);
+        JSType replacement = replacements.getUnresolvedOriginalTemplateType(type);
+        if (replacement == keyType || isRecursive(type, replacement)) {
+          // Recursive templated type definition (e.g. T resolved to Foo<T>).
+          return type;
+        }
 
         visitedTypes.push(type);
         JSType visitedReplacement = replacement.visit(this);
         visitedTypes.pop();
 
+        Preconditions.checkState(
+            visitedReplacement != keyType, "Trying to replace key %s with the same value", keyType);
         return visitedReplacement;
       }
     } else {
       return type;
     }
+  }
+
+  /**
+   * Returns whether the replacement type is a templatized type which contains the current type.
+   * e.g. current type T is being replaced with Foo<T>
+   */
+  private boolean isRecursive(TemplateType currentType, JSType replacementType) {
+    TemplatizedType replacementTemplatizedType =
+        replacementType.restrictByNotNullOrUndefined().toMaybeTemplatizedType();
+    if (replacementTemplatizedType == null) {
+      return false;
+    }
+
+    Iterable<JSType> replacementTemplateTypes = replacementTemplatizedType.getTemplateTypes();
+    for (JSType replacementTemplateType : replacementTemplateTypes) {
+      if (replacementTemplateType.isTemplateType()
+          && isSameType(currentType, replacementTemplateType.toMaybeTemplateType())) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private boolean isSameType(TemplateType currentType, TemplateType replacementType) {
+    return currentType == replacementType
+        || currentType == replacements.getUnresolvedOriginalTemplateType(replacementType);
   }
 
   /**

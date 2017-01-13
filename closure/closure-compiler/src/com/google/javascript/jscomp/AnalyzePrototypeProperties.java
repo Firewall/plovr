@@ -23,7 +23,6 @@ import com.google.javascript.jscomp.graph.FixedPointGraphTraversal;
 import com.google.javascript.jscomp.graph.FixedPointGraphTraversal.EdgeCallback;
 import com.google.javascript.jscomp.graph.LinkedDirectedGraph;
 import com.google.javascript.rhino.Node;
-import com.google.javascript.rhino.Token;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -254,7 +253,7 @@ class AnalyzePrototypeProperties implements CompilerPass {
     @Override
     public void visit(NodeTraversal t, Node n, Node parent) {
       if (n.isGetProp()) {
-        String propName = n.getFirstChild().getNext().getString();
+        String propName = n.getSecondChild().getString();
 
         if (n.isQualifiedName()) {
           if (propName.equals("prototype")) {
@@ -396,9 +395,9 @@ class AnalyzePrototypeProperties implements CompilerPass {
       Node lValue = NodeUtil.getBestLValue(rValue);
       if (lValue == null ||
           lValue.getParent() == null ||
-          lValue.getParent().getParent() == null ||
+          lValue.getGrandparent() == null ||
           !((NodeUtil.isObjectLitKey(lValue) && !lValue.isQuotedString()) ||
-            NodeUtil.isExprAssign(lValue.getParent().getParent()))) {
+            NodeUtil.isExprAssign(lValue.getGrandparent()))) {
         return null;
       }
 
@@ -462,8 +461,8 @@ class AnalyzePrototypeProperties implements CompilerPass {
       Node n = ref.getParent();
       switch (n.getType()) {
         // Foo.prototype.getBar = function() { ... }
-        case Token.GETPROP:
-          Node dest = n.getFirstChild().getNext();
+        case GETPROP:
+          Node dest = n.getSecondChild();
           Node parent = n.getParent();
           Node grandParent = parent.getParent();
 
@@ -481,8 +480,8 @@ class AnalyzePrototypeProperties implements CompilerPass {
           break;
 
         // Foo.prototype = { "getBar" : function() { ... } }
-        case Token.ASSIGN:
-          Node map = n.getFirstChild().getNext();
+        case ASSIGN:
+          Node map = n.getSecondChild();
           if (map.isObjectLit()) {
             for (Node key = map.getFirstChild();
                  key != null; key = key.getNext()) {
@@ -657,7 +656,7 @@ class AnalyzePrototypeProperties implements CompilerPass {
 
     @Override
     public Node getPrototype() {
-      return getAssignNode().getFirstChild().getFirstChild();
+      return getAssignNode().getFirstFirstChild();
     }
 
     @Override
@@ -730,7 +729,7 @@ class AnalyzePrototypeProperties implements CompilerPass {
    * The context of the current name. This includes the NameInfo and the scope
    * if it is a scope defining name (function).
    */
-  private class NameContext {
+  private static class NameContext {
     final NameInfo name;
 
     // If this is a function context, then scope will be the scope of the

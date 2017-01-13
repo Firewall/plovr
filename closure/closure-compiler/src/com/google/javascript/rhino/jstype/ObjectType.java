@@ -42,11 +42,13 @@ package com.google.javascript.rhino.jstype;
 import static com.google.javascript.rhino.jstype.TernaryValue.FALSE;
 import static com.google.javascript.rhino.jstype.TernaryValue.UNKNOWN;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.javascript.rhino.JSDocInfo;
+import com.google.javascript.rhino.JSDocInfo.Visibility;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.ObjectTypeI;
 
@@ -275,6 +277,11 @@ public abstract class ObjectType
    */
   public abstract ObjectType getImplicitPrototype();
 
+  @Override
+  public ObjectType getPrototypeObject() {
+    return getImplicitPrototype();
+  }
+
   /**
    * Defines a property whose type is explicitly declared by the programmer.
    * @param propertyName the property's name
@@ -381,14 +388,26 @@ public abstract class ObjectType
     return p == null ? null : p.getNode();
   }
 
+  @Override
+  public Node getPropertyDefsite(String propertyName) {
+    return getPropertyNode(propertyName);
+  }
+
   /**
    * Gets the docInfo on the specified property on this type.  This should not
    * be implemented recursively, as you generally need to know exactly on
    * which type in the prototype chain the JSDocInfo exists.
    */
+  @Override
   public JSDocInfo getOwnPropertyJSDocInfo(String propertyName) {
     Property p = getOwnSlot(propertyName);
     return p == null ? null : p.getJSDocInfo();
+  }
+
+  @Override
+  public Node getOwnPropertyDefsite(String propertyName) {
+    Property p = getOwnSlot(propertyName);
+    return p == null ? null : p.getNode();
   }
 
   /**
@@ -478,7 +497,7 @@ public abstract class ObjectType
   @Override
   public boolean isStructuralType() {
     FunctionType constructor = this.getConstructor();
-    return constructor != null && constructor.isStructuralType();
+    return constructor != null && constructor.isStructuralInterface();
   }
 
   /**
@@ -499,6 +518,86 @@ public abstract class ObjectType
    */
   public int getPropertiesCount() {
     return getPropertyMap().getPropertiesCount();
+  }
+
+  /**
+   * Check for structural equivalence with {@code that}.
+   * (e.g. two @record types with the same prototype properties)
+   */
+  boolean checkStructuralEquivalenceHelper(
+      ObjectType otherObject, EquivalenceMethod eqMethod, EqCache eqCache) {
+    if (this.isTemplatizedType() && this.toMaybeTemplatizedType().wrapsSameRawType(otherObject)) {
+      return this.getTemplateTypeMap().checkEquivalenceHelper(
+          otherObject.getTemplateTypeMap(), eqMethod, eqCache, SubtypingMode.NORMAL);
+    }
+
+    MatchStatus result = eqCache.checkCache(this, otherObject);
+    if (result != null) {
+      return result.subtypeValue();
+    }
+    Set<String> keySet = getPropertyNames();
+    Set<String> otherKeySet = otherObject.getPropertyNames();
+    if (!otherKeySet.equals(keySet)) {
+      eqCache.updateCache(this, otherObject, MatchStatus.NOT_MATCH);
+      return false;
+    }
+    for (String key : keySet) {
+      if (!otherObject.getPropertyType(key).checkEquivalenceHelper(
+              getPropertyType(key), eqMethod, eqCache)) {
+        eqCache.updateCache(this, otherObject, MatchStatus.NOT_MATCH);
+        return false;
+      }
+    }
+    eqCache.updateCache(this, otherObject, MatchStatus.MATCH);
+    return true;
+  }
+
+  private static boolean isStructuralSubtypeHelper(
+      ObjectType typeA, ObjectType typeB,
+      ImplCache implicitImplCache, SubtypingMode subtypingMode) {
+
+    // typeA is a subtype of record type typeB iff:
+    // 1) typeA has all the non-optional properties declared in typeB.
+    // 2) And for each property of typeB, its type must be
+    //    a super type of the corresponding property of typeA.
+    for (String property : typeB.getPropertyNames()) {
+      JSType propB = typeB.getPropertyType(property);
+      if (!typeA.hasProperty(property)) {
+        // Currently, any type that explicitly includes undefined (eg, `?|undefined`) is optional.
+        if (propB.isExplicitlyVoidable()) {
+          continue;
+        }
+        return false;
+      }
+      JSType propA = typeA.getPropertyType(property);
+      if (!propA.isSubtype(propB, implicitImplCache, subtypingMode)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Determine if {@code this} is a an implicit subtype of {@code superType}.
+   */
+  boolean isStructuralSubtype(ObjectType superType,
+      ImplCache implicitImplCache, SubtypingMode subtypingMode) {
+    // Union types should be handled by isSubtype already
+    Preconditions.checkArgument(!this.isUnionType());
+    Preconditions.checkArgument(!superType.isUnionType());
+    Preconditions.checkArgument(superType.isStructuralType(),
+        "isStructuralSubtype should be called with structural supertype. Found %s", superType);
+
+    MatchStatus cachedResult = implicitImplCache.checkCache(this, superType);
+    if (cachedResult != null) {
+      return cachedResult.subtypeValue();
+    }
+
+    boolean result = isStructuralSubtypeHelper(
+        this, superType, implicitImplCache, subtypingMode);
+    implicitImplCache.updateCache(
+        this, superType, result ? MatchStatus.MATCH : MatchStatus.NOT_MATCH);
+    return result;
   }
 
   /**
@@ -654,5 +753,18 @@ public abstract class ObjectType
       propTypeMap.put(name, this.getPropertyType(name));
     }
     return propTypeMap.build();
+  }
+
+  @Override
+  public ObjectType getLowestSupertypeWithProperty(String propertyName, boolean isOverride) {
+    // Find the lowest property defined on a class with visibility information.
+    ObjectType objectType = isOverride ? this.getImplicitPrototype() : this;
+    for (; objectType != null; objectType = objectType.getImplicitPrototype()) {
+      JSDocInfo docInfo = objectType.getOwnPropertyJSDocInfo(propertyName);
+      if (docInfo != null && docInfo.getVisibility() != Visibility.INHERITED) {
+        return objectType;
+      }
+    }
+    return null;
   }
 }

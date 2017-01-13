@@ -10,6 +10,7 @@ java_library(
       ],
       excludes = [
         'src/com/google/javascript/jscomp/ant/**/*.java',
+        'src/com/google/javascript/jscomp/debugger/**/*.java',
         'src/com/google/javascript/jscomp/gwt/**/*.java',
         'src/com/google/javascript/jscomp/jsonml/**/*.java',
         'src/com/google/javascript/jscomp/testing/**/*.java',
@@ -24,6 +25,7 @@ java_library(
     ':jsr305',
     ':protobuf',
     ':externs_srcs',
+    ':externs_zip',
     ':support_srcs',
   ],
   visibility = [ 'PUBLIC' ],
@@ -42,15 +44,16 @@ java_library(
 java_library(
   name = 'support_srcs',
   resources = glob(includes=[
-    'src/com/google/javascript/jscomp/js/*.js',
+    'src/com/google/javascript/jscomp/js/**/*.js',
+    'src/com/google/javascript/jscomp/js/polyfills.txt',
     'src/**/*.properties'
   ]),
   resources_root = './src')
 
 genrule(
   name = 'externs_zip',
-  srcs = glob(['externs/*.js']),
-  cmd = 'zip -r $OUT $SRCS',
+  srcs = glob(['externs/**/*.js']),
+  cmd = 'cd externs && zip -r $OUT *',
   out = 'externs.zip',
 )
 

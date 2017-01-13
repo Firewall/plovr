@@ -25,7 +25,7 @@ import com.google.javascript.rhino.Node;
  * @see CodePrinter
  * @see InlineCostEstimator
  */
-abstract class CodeConsumer {
+public abstract class CodeConsumer {
   boolean statementNeedsEnded = false;
   boolean statementStarted = false;
   boolean sawFunction = false;
@@ -220,8 +220,7 @@ abstract class CodeConsumer {
       // This is not pretty printing. This is to prevent misparsing of
       // things like "x + ++y" or "x++ + ++y"
       append(" ");
-    } else if (Character.isLetter(first) &&
-               isWordChar(prev)) {
+    } else if (Character.isLetter(first) && isWordChar(prev)) {
       // Make sure there is a space after e.g. instanceof , typeof
       append(" ");
     } else if (prev == '-' && first == '>' || prev == '<' && first == '!') {
@@ -285,7 +284,7 @@ abstract class CodeConsumer {
   }
 
   static boolean isNegativeZero(double x) {
-    return x == 0.0 && Math.copySign(1, x) == -1.0;
+    return x == 0.0 && 1 / x < 0;
   }
 
   static boolean isWordChar(char ch) {
